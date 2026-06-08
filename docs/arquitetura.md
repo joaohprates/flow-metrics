@@ -6,10 +6,10 @@
 flowchart LR
     gestor["Gestor de Projetos"]
     flow["FlowMetrics"]
-    auth["Sistema de Autenticacao Externo"]
+    auth["Sistema de Autenticacao Externo\n(proxima iteracao)"]
 
     gestor -->|"Gerencia tarefas e visualiza Lead Time, Cycle Time e gargalos"| flow
-    flow -->|"Autentica usuarios"| auth
+    flow -.->|"Validacao de usuario planejada"| auth
 ```
 
 ## C4 - Nivel 2: Containers
@@ -19,77 +19,56 @@ flowchart TB
     gestor["Gestor de Projetos"]
 
     subgraph flowmetrics["FlowMetrics"]
-        web["Web App\nNext.js / React"]
-        api["API Backend\nFastAPI / Python"]
-        service["Metrics Service\nLead Time, Cycle Time, Gargalos"]
-        db[("PostgreSQL\nCards, colunas e transicoes")]
+        web["apps/web\nNext.js / React / TypeScript"]
+        api["apps/api\nFastAPI / Python"]
+        service["Metrics Service\nLead Time, Cycle Time, Throughput, Gargalos"]
+        repo["Repository\nSQL e persistencia"]
+        db[("PostgreSQL 16\ncards e card_transitions")]
     end
 
-    auth["Sistema de Autenticacao Externo"]
-    cicd["GitHub Actions"]
-    railway["Railway"]
+    compose["Docker Compose"]
+    ci["GitHub Actions\nplanejado"]
+    railway["Railway\nplanejado"]
 
     gestor -->|"Acessa via navegador"| web
-    web -->|"JSON / HTTPS"| api
-    api -->|"Valida sessao"| auth
-    api -->|"Orquestra regras"| service
-    service -->|"Le e grava historico"| db
-    cicd -->|"Build e deploy"| railway
-    railway -->|"Hospeda Web App e API"| flowmetrics
+    web -->|"JSON / HTTP"| api
+    api -->|"Executa regras"| service
+    api -->|"Le e grava dados"| repo
+    repo --> db
+    compose -->|"Sobe postgres, api e web"| flowmetrics
+    ci -.->|"Build e testes"| railway
+    railway -.->|"Deploy futuro"| flowmetrics
 ```
 
-## Camadas internas
+## Camadas internas da API
 
 ```mermaid
 flowchart LR
-    controller["Controllers\nRotas HTTP"]
-    service["Services\nRegras de negocio"]
-    repository["Repositories\nPersistencia"]
+    routes["app/main.py\nRotas HTTP"]
+    models["app/models.py\nContratos Pydantic"]
+    repository["app/repository.py\nPersistencia"]
+    metrics["app/metrics.py\nRegras puras de calculo"]
     database[("PostgreSQL")]
 
-    controller --> service
-    service --> repository
+    routes --> models
+    routes --> repository
+    routes --> metrics
     repository --> database
 ```
 
-## Modelo de dados essencial
+## Modelo de dados implementado
 
 ```mermaid
 erDiagram
-    USERS ||--o{ BOARDS : owns
-    BOARDS ||--o{ COLUMNS : contains
-    COLUMNS ||--o{ CARDS : groups
     CARDS ||--o{ CARD_TRANSITIONS : records
-
-    USERS {
-        uuid id PK
-        string name
-        string email
-        string role
-    }
-
-    BOARDS {
-        uuid id PK
-        uuid owner_id FK
-        string name
-        timestamp created_at
-    }
-
-    COLUMNS {
-        uuid id PK
-        uuid board_id FK
-        string name
-        int position
-    }
 
     CARDS {
         uuid id PK
-        uuid board_id FK
-        uuid column_id FK
         string title
-        string owner_name
-        string type
+        string owner
+        string card_type
         string priority
+        string column_id
         timestamp created_at
         timestamp updated_at
     }
@@ -97,9 +76,10 @@ erDiagram
     CARD_TRANSITIONS {
         uuid id PK
         uuid card_id FK
-        uuid from_column_id FK
-        uuid to_column_id FK
+        string from_column
+        string to_column
         timestamp moved_at
+        string note
     }
 ```
 
@@ -107,7 +87,9 @@ erDiagram
 
 - O historico de transicoes e a fonte da verdade para metricas de fluxo.
 - Lead Time e calculado da criacao do card ate a entrada em Concluido.
-- Cycle Time e calculado da entrada em Em Progresso ate a entrada em Concluido.
+- Cycle Time e calculado da primeira entrada em Em Progresso ate a entrada em Concluido.
+- Throughput considera cards concluidos nos ultimos 7 dias.
 - Gargalo e calculado pela maior permanencia media por coluna.
-- O MVP local usa LocalStorage para demonstracao rapida; em producao, a mesma regra vai para FastAPI + PostgreSQL.
-- A separacao Controller / Service / Repository evita que a regra de calculo fique presa na interface.
+- A API separa rotas, modelos, repositorio e calculo de metricas para evitar regra de negocio presa na interface.
+- O MVP atual ja usa Next.js, FastAPI e PostgreSQL; a versao estatica em `mvp/` ficou apenas como fallback.
+- Autenticacao externa, CI/CD e deploy Railway estao documentados como evolucao natural da proposta original.

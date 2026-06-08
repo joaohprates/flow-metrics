@@ -27,30 +27,29 @@ Frase-chave: "O problema nao e saber em qual coluna o card esta, e saber quanto 
 Mostrar o raciocinio do produto:
 
 - Cada mudanca de coluna vira um evento de auditoria.
-- Esses eventos alimentam Lead Time, Cycle Time e gargalo.
+- Esses eventos alimentam Lead Time, Cycle Time, Throughput e gargalo.
 - A metrica nasce do fluxo real, nao de preenchimento manual.
 
-## Slide 4 - MVP
+## Slide 4 - MVP executavel
 
-Abrir o MVP em `mvp/index.html` e demonstrar:
+Abrir `http://localhost:3000` e demonstrar:
 
-1. Cards ja carregados no quadro.
+1. Cards carregados pelo backend.
 2. Indicadores no topo.
 3. Arrastar um card entre colunas.
 4. Ver metricas e auditoria atualizando.
 5. Criar um novo card.
 6. Abrir detalhes de um card para mostrar a timeline.
-7. Exportar JSON se quiser evidenciar os dados.
 
 ## Slide 5 - Arquitetura
 
 Explicar a separacao:
 
-- Web App: interface do quadro e painel.
-- API FastAPI: entrada HTTP e validacao.
+- Web App Next.js: interface do quadro e painel.
+- API FastAPI: entrada HTTP, validacao e orquestracao.
 - Metrics Service: regras de calculo.
+- Repository: acesso SQL.
 - PostgreSQL: historico de cards e transicoes.
-- Autenticacao externa: validacao de usuario.
 
 Frase-chave: "A regra de negocio fica isolada da tela, entao o painel pode evoluir sem quebrar o calculo das metricas."
 
@@ -58,8 +57,9 @@ Frase-chave: "A regra de negocio fica isolada da tela, entao o painel pode evolu
 
 Enfatizar que o evento `card_transitions` e a fonte da verdade:
 
-- Lead Time: criado em ate concluido.
+- Lead Time: criado ate concluido.
 - Cycle Time: entrou em progresso ate concluido.
+- Throughput: cards concluidos nos ultimos 7 dias.
 - Gargalo: maior permanencia media por coluna.
 
 ## Slide 7 - Gantt
@@ -76,10 +76,13 @@ Apresentar as etapas:
 
 Fechar com resultado obtido:
 
-- MVP funcional.
+- MVP funcional em stack real.
+- Frontend Next.js.
+- API FastAPI.
+- Banco PostgreSQL.
 - Diagrama arquitetural.
 - Gantt.
-- Base para evolucao com Next.js, FastAPI, PostgreSQL e Railway.
+- Base para evolucao com autenticacao, CI/CD e Railway.
 
 Frase final:
 
@@ -93,11 +96,11 @@ Porque o Trello e forte como quadro visual, mas a proposta da FlowMetrics e inco
 
 ### O MVP esta funcional?
 
-Sim. O MVP permite criar cards, mover entre colunas, registrar transicoes, calcular metricas, mostrar gargalo e exportar os dados.
+Sim. O MVP permite criar cards, mover entre colunas, registrar transicoes no PostgreSQL, calcular metricas, mostrar gargalo e auditar historico pela API.
 
 ### Onde entra arquitetura?
 
-Na separacao entre interface, API, servico de metricas e persistencia. Isso permite trocar a tela ou evoluir o banco sem misturar regras de calculo.
+Na separacao entre interface, API, repositorio, servico de metricas e persistencia. Isso permite trocar a tela ou evoluir o banco sem misturar regras de calculo.
 
 ### Qual e o principal aprendizado?
 

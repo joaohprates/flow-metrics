@@ -1,0 +1,48 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: flowmetrics-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: flowmetrics
+      POSTGRES_PASSWORD: flowmetrics
+      POSTGRES_DB: flowmetrics
+    ports:
+      - "5432:5432"
+    volumes:
+      - flowmetrics_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flowmetrics -d flowmetrics"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ../apps/api
+    container_name: flowmetrics-api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://flowmetrics:flowmetrics@postgres:5432/flowmetrics
+      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+    container_name: flowmetrics-web
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  flowmetrics_pg:

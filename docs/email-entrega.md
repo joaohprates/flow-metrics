@@ -22,7 +22,9 @@ Integrantes e cargos:
 
 Entregaveis incluidos:
 
-- MVP funcional em `mvp/index.html`
+- MVP funcional com frontend Next.js em `apps/web`
+- API FastAPI em `apps/api`
+- Banco PostgreSQL e ambiente Docker Compose em `infra/docker-compose.yml`
 - Apresentacao em `presentation/FlowMetrics-MVP-2o-Bimestre.pptx`
 - Diagrama de Gantt em `docs/gantt.md`
 - Diagrama arquitetural em `docs/arquitetura.md`

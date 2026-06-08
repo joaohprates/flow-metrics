@@ -1,4 +1,12 @@
 outputs/
+node_modules/
+.next/
+.npm-cache/
+.pgdata-flowmetrics/
+.pgtemp/
+.venv/
+__pycache__/
+.pytest_cache/
 *.log
 .DS_Store
 Thumbs.db
