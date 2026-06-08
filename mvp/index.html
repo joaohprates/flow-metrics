@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FlowMetrics MVP</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="side-nav" aria-label="Navegacao principal">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">FM</span>
+          <div>
+            <strong>FlowMetrics</strong>
+            <span>Kanban com metricas nativas</span>
+          </div>
+        </div>
+
+        <nav class="nav-stack">
+          <a class="nav-item active" href="#quadro">Quadro</a>
+          <a class="nav-item" href="#metricas">Metricas</a>
+          <a class="nav-item" href="#historico">Auditoria</a>
+        </nav>
+
+        <section class="status-strip" aria-label="Resumo operacional">
+          <span>Ambiente</span>
+          <strong>MVP local</strong>
+          <span>Persistencia</span>
+          <strong>LocalStorage</strong>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="kicker">Painel analitico de metricas ageis</p>
+            <h1>Tempo de fluxo visivel, sem extensoes.</h1>
+          </div>
+          <div class="toolbar" aria-label="Acoes do quadro">
+            <button class="ghost-button" id="exportButton" type="button">Exportar JSON</button>
+            <button class="ghost-button" id="resetButton" type="button">Restaurar demo</button>
+            <button class="primary-button" id="newCardButton" type="button">Novo card</button>
+          </div>
+        </header>
+
+        <section class="metrics-row" id="metricas" aria-label="Indicadores do fluxo">
+          <article class="metric-tile">
+            <span>Lead Time medio</span>
+            <strong id="leadTimeValue">--</strong>
+            <small>criacao ate conclusao</small>
+          </article>
+          <article class="metric-tile">
+            <span>Cycle Time medio</span>
+            <strong id="cycleTimeValue">--</strong>
+            <small>inicio real ate entrega</small>
+          </article>
+          <article class="metric-tile">
+            <span>Throughput 7 dias</span>
+            <strong id="throughputValue">--</strong>
+            <small>cards concluidos</small>
+          </article>
+          <article class="metric-tile warning">
+            <span>Gargalo atual</span>
+            <strong id="bottleneckValue">--</strong>
+            <small id="bottleneckNote">maior permanencia media</small>
+          </article>
+        </section>
+
+        <section class="work-grid">
+          <section class="board-panel" id="quadro" aria-label="Quadro Kanban">
+            <div class="section-heading">
+              <div>
+                <p class="kicker">Fluxo de trabalho</p>
+                <h2>Quadro Kanban rastreavel</h2>
+              </div>
+              <label class="filter-control">
+                <span>Filtro</span>
+                <select id="ownerFilter" aria-label="Filtrar por responsavel">
+                  <option value="all">Todos</option>
+                </select>
+              </label>
+            </div>
+            <div class="kanban-board" id="board"></div>
+          </section>
+
+          <aside class="insight-panel" aria-label="Analise de fluxo">
+            <div class="section-heading compact">
+              <div>
+                <p class="kicker">Analise</p>
+                <h2>Tempo por coluna</h2>
+              </div>
+            </div>
+            <div class="chart-frame">
+              <svg id="columnChart" viewBox="0 0 360 220" role="img" aria-label="Grafico de tempo medio por coluna"></svg>
+            </div>
+            <div class="flow-table" id="flowTable"></div>
+          </aside>
+        </section>
+
+        <section class="audit-panel" id="historico" aria-label="Historico de movimentacoes">
+          <div class="section-heading">
+            <div>
+              <p class="kicker">Auditoria</p>
+              <h2>Ultimas transicoes registradas</h2>
+            </div>
+          </div>
+          <div class="audit-list" id="auditList"></div>
+        </section>
+      </main>
+    </div>
+
+    <dialog class="modal" id="cardModal">
+      <form method="dialog" class="modal-content" id="cardForm">
+        <div class="modal-head">
+          <div>
+            <p class="kicker">Novo trabalho</p>
+            <h2>Criar card rastreavel</h2>
+          </div>
+          <button class="icon-button" value="cancel" aria-label="Fechar" type="submit">x</button>
+        </div>
+        <label>
+          <span>Titulo</span>
+          <input id="cardTitle" required maxlength="80" placeholder="Ex.: Integrar API de metricas" />
+        </label>
+        <div class="form-grid">
+          <label>
+            <span>Responsavel</span>
+            <input id="cardOwner" required maxlength="40" placeholder="Nome" />
+          </label>
+          <label>
+            <span>Tipo</span>
+            <select id="cardType">
+              <option>Feature</option>
+              <option>Bug</option>
+              <option>Infra</option>
+              <option>UX</option>
+            </select>
+          </label>
+        </div>
+        <label>
+          <span>Prioridade</span>
+          <select id="cardPriority">
+            <option>Alta</option>
+            <option selected>Media</option>
+            <option>Baixa</option>
+          </select>
+        </label>
+        <footer class="modal-actions">
+          <button class="ghost-button" value="cancel" type="submit">Cancelar</button>
+          <button class="primary-button" value="default" type="submit">Adicionar ao Backlog</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <aside class="drawer" id="cardDrawer" aria-live="polite" aria-label="Detalhes do card">
+      <div class="drawer-content">
+        <button class="icon-button drawer-close" id="drawerClose" type="button" aria-label="Fechar detalhes">x</button>
+        <p class="kicker">Card selecionado</p>
+        <h2 id="drawerTitle">Selecione um card</h2>
+        <dl class="detail-grid" id="drawerMetrics"></dl>
+        <div class="timeline" id="drawerTimeline"></div>
+      </div>
+    </aside>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
