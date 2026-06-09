@@ -21,17 +21,21 @@ import {
 } from "@/lib/api";
 
 const priorityOptions: Priority[] = ["Alta", "Media", "Baixa"];
+type Notice = { message: string; tone: "saving" | "success" };
 
 export function FlowMetricsBoard() {
   const [board, setBoard] = useState<Board | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
   const [ownerFilter, setOwnerFilter] = useState("all");
   const [draggingCardId, setDraggingCardId] = useState<string | null>(null);
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   const [editingCard, setEditingCard] = useState<Card | null>(null);
   const [creationParentId, setCreationParentId] = useState<string | null>(null);
   const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [savingCard, setSavingCard] = useState(false);
+  const [savingUser, setSavingUser] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [userFormOpen, setUserFormOpen] = useState(false);
 
@@ -50,6 +54,12 @@ export function FlowMetricsBoard() {
   useEffect(() => {
     refresh();
   }, []);
+
+  useEffect(() => {
+    if (!notice || notice.tone === "saving") return;
+    const timer = window.setTimeout(() => setNotice(null), 3200);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
 
   const owners = useMemo(() => {
     if (!board) return [];
@@ -110,7 +120,8 @@ export function FlowMetricsBoard() {
 
   async function onSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const payload = {
       title: String(form.get("title") || ""),
       parent_card_id: String(form.get("parent_card_id") || "") || null,
@@ -119,6 +130,8 @@ export function FlowMetricsBoard() {
       priority: String(form.get("priority") || "Media") as Priority,
     };
 
+    setSavingCard(true);
+    setNotice({ message: "Salvando card no PostgreSQL...", tone: "saving" });
     try {
       if (editingCard) {
         await updateCard(editingCard.id, {
@@ -128,24 +141,31 @@ export function FlowMetricsBoard() {
       } else {
         await createCard(payload);
       }
-      event.currentTarget.reset();
+      formElement.reset();
       setFormOpen(false);
       setEditingCard(null);
       setCreationParentId(null);
-      await refresh();
+      setNotice({ message: editingCard ? "Card atualizado com sucesso." : "Card salvo com sucesso.", tone: "success" });
+      void refresh();
     } catch (cause) {
+      setNotice(null);
       setError(cause instanceof Error ? cause.message : "Nao foi possivel salvar o card");
+    } finally {
+      setSavingCard(false);
     }
   }
 
   async function onSaveUser(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const payload = {
       name: String(form.get("name") || ""),
       role: String(form.get("role") || "Produto"),
     };
 
+    setSavingUser(true);
+    setNotice({ message: "Salvando usuario...", tone: "saving" });
     try {
       if (editingUser) {
         await updateUser(editingUser.id, {
@@ -155,12 +175,19 @@ export function FlowMetricsBoard() {
       } else {
         await createUser(payload);
       }
-      event.currentTarget.reset();
+      formElement.reset();
       setUserFormOpen(false);
       setEditingUser(null);
-      await refresh();
+      setNotice({
+        message: editingUser ? "Usuario atualizado com sucesso." : "Usuario criado com sucesso.",
+        tone: "success",
+      });
+      void refresh();
     } catch (cause) {
+      setNotice(null);
       setError(cause instanceof Error ? cause.message : "Nao foi possivel salvar o usuario");
+    } finally {
+      setSavingUser(false);
     }
   }
 
@@ -247,6 +274,7 @@ export function FlowMetricsBoard() {
         </header>
 
         {error ? <div className="error-banner">{error}</div> : null}
+        {notice ? <Toast notice={notice} /> : null}
 
         {board ? (
           <>
@@ -466,6 +494,7 @@ export function FlowMetricsBoard() {
           card={editingCard}
           creationParentId={creationParentId}
           cards={board?.cards || []}
+          saving={savingCard}
           users={board?.users || []}
           onClose={() => {
             setFormOpen(false);
@@ -478,6 +507,7 @@ export function FlowMetricsBoard() {
       {userFormOpen ? (
         <UserDialog
           user={editingUser}
+          saving={savingUser}
           onClose={() => {
             setUserFormOpen(false);
             setEditingUser(null);
@@ -553,6 +583,15 @@ function WorkCard({
   );
 }
 
+function Toast({ notice }: { notice: Notice }) {
+  return (
+    <div className={`toast ${notice.tone}`} role="status" aria-live="polite">
+      <span>{notice.tone === "saving" ? "..." : "OK"}</span>
+      <strong>{notice.message}</strong>
+    </div>
+  );
+}
+
 function MetricTile({ label, value, note, tone }: { label: string; value: string; note: string; tone?: "warning" }) {
   return (
     <article className={`metric-tile ${tone === "warning" ? "warning" : ""}`}>
@@ -567,6 +606,7 @@ function CardDialog({
   card,
   cards,
   creationParentId,
+  saving,
   users,
   onClose,
   onSave,
@@ -574,6 +614,7 @@ function CardDialog({
   card: Card | null;
   cards: Card[];
   creationParentId: string | null;
+  saving: boolean;
   users: User[];
   onClose: () => void;
   onSave: (event: FormEvent<HTMLFormElement>) => void;
@@ -669,8 +710,8 @@ function CardDialog({
           <button className="ghost-button" type="button" onClick={onClose}>
             Cancelar
           </button>
-          <button className="primary-button" type="submit">
-            {card ? "Atualizar card" : "Salvar no PostgreSQL"}
+          <button className="primary-button" type="submit" disabled={saving}>
+            {saving ? "Salvando..." : card ? "Atualizar card" : "Salvar no PostgreSQL"}
           </button>
         </footer>
         {!availableUsers.length ? <p className="form-note">Crie um usuario ativo antes de cadastrar cards.</p> : null}
@@ -681,10 +722,12 @@ function CardDialog({
 
 function UserDialog({
   user,
+  saving,
   onClose,
   onSave,
 }: {
   user: User | null;
+  saving: boolean;
   onClose: () => void;
   onSave: (event: FormEvent<HTMLFormElement>) => void;
 }) {
@@ -718,8 +761,8 @@ function UserDialog({
           <button className="ghost-button" type="button" onClick={onClose}>
             Cancelar
           </button>
-          <button className="primary-button" type="submit">
-            {user ? "Atualizar usuario" : "Criar usuario"}
+          <button className="primary-button" type="submit" disabled={saving}>
+            {saving ? "Salvando..." : user ? "Atualizar usuario" : "Criar usuario"}
           </button>
         </footer>
       </form>

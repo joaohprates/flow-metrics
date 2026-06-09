@@ -13,28 +13,12 @@ def utcnow() -> datetime:
 
 def list_cards() -> list[dict[str, Any]]:
     with get_connection() as conn:
-        return conn.execute(
-            """
-            SELECT
-                c.*,
-                COALESCE(u.name, c.owner) AS owner,
-                p.title AS parent_title,
-                (
-                    SELECT COUNT(*)::int
-                    FROM cards children
-                    WHERE children.parent_card_id = c.id
-                ) AS child_count
-            FROM cards c
-            LEFT JOIN users u ON u.id = c.owner_id
-            LEFT JOIN cards p ON p.id = c.parent_card_id
-            ORDER BY COALESCE(p.created_at, c.created_at) DESC, c.parent_card_id NULLS FIRST, c.created_at DESC
-            """
-        ).fetchall()
+        return select_cards(conn)
 
 
 def list_users() -> list[dict[str, Any]]:
     with get_connection() as conn:
-        return conn.execute("SELECT * FROM users ORDER BY active DESC, name ASC").fetchall()
+        return select_users(conn)
 
 
 def create_user(payload: UserCreate) -> dict[str, Any]:
@@ -112,16 +96,7 @@ def delete_user(user_id: UUID) -> bool:
 
 def list_transitions(limit: int = 50) -> list[dict[str, Any]]:
     with get_connection() as conn:
-        return conn.execute(
-            """
-            SELECT t.*, c.title AS card_title
-            FROM card_transitions t
-            LEFT JOIN cards c ON c.id = t.card_id
-            ORDER BY t.moved_at DESC
-            LIMIT %s
-            """,
-            (limit,),
-        ).fetchall()
+        return select_transitions(conn, limit=limit)
 
 
 def create_card(payload: CardCreate) -> dict[str, Any]:
@@ -267,20 +242,63 @@ def resolve_parent_card(conn: Any, parent_card_id: UUID | None, current_card_id:
 
 
 def get_board() -> dict[str, Any]:
-    cards = list_cards()
-    users = list_users()
-    transitions = list_transitions(limit=100)
-    metrics = calculate_metrics(cards, list_all_transitions())
+    with get_connection() as conn:
+        cards = select_cards(conn)
+        users = select_users(conn)
+        transitions = select_transitions(conn, limit=100)
+        metrics = calculate_metrics(cards, select_all_transitions(conn))
     return {"cards": cards, "users": users, "transitions": transitions, "metrics": metrics}
 
 
 def get_metrics() -> dict[str, Any]:
-    return calculate_metrics(list_cards(), list_all_transitions())
+    with get_connection() as conn:
+        return calculate_metrics(select_cards(conn), select_all_transitions(conn))
 
 
 def list_all_transitions() -> list[dict[str, Any]]:
     with get_connection() as conn:
-        return conn.execute("SELECT * FROM card_transitions ORDER BY moved_at ASC").fetchall()
+        return select_all_transitions(conn)
+
+
+def select_cards(conn: Any) -> list[dict[str, Any]]:
+    return conn.execute(
+        """
+        SELECT
+            c.*,
+            COALESCE(u.name, c.owner) AS owner,
+            p.title AS parent_title,
+            (
+                SELECT COUNT(*)::int
+                FROM cards children
+                WHERE children.parent_card_id = c.id
+            ) AS child_count
+        FROM cards c
+        LEFT JOIN users u ON u.id = c.owner_id
+        LEFT JOIN cards p ON p.id = c.parent_card_id
+        ORDER BY COALESCE(p.created_at, c.created_at) DESC, c.parent_card_id NULLS FIRST, c.created_at DESC
+        """
+    ).fetchall()
+
+
+def select_users(conn: Any) -> list[dict[str, Any]]:
+    return conn.execute("SELECT * FROM users ORDER BY active DESC, name ASC").fetchall()
+
+
+def select_transitions(conn: Any, limit: int = 50) -> list[dict[str, Any]]:
+    return conn.execute(
+        """
+        SELECT t.*, c.title AS card_title
+        FROM card_transitions t
+        LEFT JOIN cards c ON c.id = t.card_id
+        ORDER BY t.moved_at DESC
+        LIMIT %s
+        """,
+        (limit,),
+    ).fetchall()
+
+
+def select_all_transitions(conn: Any) -> list[dict[str, Any]]:
+    return conn.execute("SELECT * FROM card_transitions ORDER BY moved_at ASC").fetchall()
 
 
 def seed_if_empty() -> None:
