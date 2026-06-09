@@ -1,4 +1,6 @@
 from contextlib import contextmanager
+from os import getenv
+
 from psycopg import Connection, connect
 from psycopg.rows import dict_row
 
@@ -46,9 +48,25 @@ CREATE INDEX IF NOT EXISTS card_transitions_to_time_idx ON card_transitions(to_c
 """
 
 
+class DatabaseUnavailable(RuntimeError):
+    pass
+
+
 @contextmanager
 def get_connection() -> Connection:
-    conn = connect(get_settings().database_url, row_factory=dict_row)
+    settings = get_settings()
+    if getenv("VERCEL") and not settings.has_external_database_url:
+        raise DatabaseUnavailable(
+            "DATABASE_URL nao configurada na Vercel. Configure uma URL PostgreSQL externa com sslmode=require."
+        )
+
+    try:
+        conn = connect(settings.database_url, row_factory=dict_row)
+    except Exception as exc:
+        raise DatabaseUnavailable(
+            "Nao foi possivel conectar ao PostgreSQL. Verifique DATABASE_URL, acesso externo e sslmode=require."
+        ) from exc
+
     try:
         yield conn
         conn.commit()

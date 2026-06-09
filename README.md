@@ -85,6 +85,23 @@ Em outro terminal, rode o frontend:
 npm run dev:web
 ```
 
+## Deploy na Vercel
+
+O projeto usa Vercel Services em `vercel.json`:
+
+- `web`: Next.js em `/`
+- `backend`: FastAPI em `/_/backend`
+
+Configure esta variavel no projeto da Vercel:
+
+```text
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DATABASE?sslmode=require
+```
+
+O banco precisa ser externo e acessivel pela Vercel. Nao use `127.0.0.1` em producao.
+
+Nao configure `NEXT_PUBLIC_API_URL` na Vercel, a menos que queira apontar para uma API externa. A Vercel injeta `NEXT_PUBLIC_BACKEND_URL` automaticamente para o servico `backend`.
+
 ## Funcionalidades implementadas
 
 - Quadro Kanban com cinco colunas: Backlog, A Fazer, Em Progresso, Revisao e Concluido.

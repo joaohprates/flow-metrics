@@ -92,9 +92,21 @@ function apiUrl(path: string): string {
   return `${API_URL.replace(/\/$/, "")}${path}`;
 }
 
+async function apiError(response: Response, fallback: string): Promise<Error> {
+  try {
+    const body = await response.json();
+    if (typeof body?.detail === "string") {
+      return new Error(body.detail);
+    }
+  } catch {
+    // Keep the product-facing fallback below when the backend returns no JSON.
+  }
+  return new Error(fallback);
+}
+
 export async function getBoard(): Promise<Board> {
   const response = await fetch(apiUrl("/api/board"), { cache: "no-store" });
-  if (!response.ok) throw new Error("Nao foi possivel carregar o quadro");
+  if (!response.ok) throw await apiError(response, "Nao foi possivel carregar o quadro");
   return response.json();
 }
 
@@ -104,7 +116,7 @@ export async function createCard(payload: CardPayload): Promise<Card> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!response.ok) throw new Error("Nao foi possivel criar o card");
+  if (!response.ok) throw await apiError(response, "Nao foi possivel criar o card");
   return response.json();
 }
 
@@ -114,13 +126,13 @@ export async function updateCard(cardId: string, payload: CardUpdatePayload): Pr
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!response.ok) throw new Error("Nao foi possivel atualizar o card");
+  if (!response.ok) throw await apiError(response, "Nao foi possivel atualizar o card");
   return response.json();
 }
 
 export async function deleteCard(cardId: string): Promise<void> {
   const response = await fetch(apiUrl(`/api/cards/${cardId}`), { method: "DELETE" });
-  if (!response.ok) throw new Error("Nao foi possivel excluir o card");
+  if (!response.ok) throw await apiError(response, "Nao foi possivel excluir o card");
 }
 
 export async function moveCard(cardId: string, to_column: ColumnId): Promise<Card> {
@@ -129,7 +141,7 @@ export async function moveCard(cardId: string, to_column: ColumnId): Promise<Car
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ to_column }),
   });
-  if (!response.ok) throw new Error("Nao foi possivel mover o card");
+  if (!response.ok) throw await apiError(response, "Nao foi possivel mover o card");
   return response.json();
 }
 
@@ -139,7 +151,7 @@ export async function createUser(payload: UserPayload): Promise<User> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!response.ok) throw new Error("Nao foi possivel criar o usuario");
+  if (!response.ok) throw await apiError(response, "Nao foi possivel criar o usuario");
   return response.json();
 }
 
@@ -149,13 +161,13 @@ export async function updateUser(userId: string, payload: UserUpdatePayload): Pr
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!response.ok) throw new Error("Nao foi possivel atualizar o usuario");
+  if (!response.ok) throw await apiError(response, "Nao foi possivel atualizar o usuario");
   return response.json();
 }
 
 export async function deleteUser(userId: string): Promise<void> {
   const response = await fetch(apiUrl(`/api/users/${userId}`), { method: "DELETE" });
-  if (!response.ok) throw new Error("Nao foi possivel desativar o usuario");
+  if (!response.ok) throw await apiError(response, "Nao foi possivel desativar o usuario");
 }
 
 export function formatDays(value: number): string {
