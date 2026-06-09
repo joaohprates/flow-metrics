@@ -5,17 +5,32 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.db import init_db
-from app.models import BoardOut, CardCreate, CardMove, CardOut, CardUpdate, MetricsOut, TransitionOut
+from app.models import (
+    BoardOut,
+    CardCreate,
+    CardMove,
+    CardOut,
+    CardUpdate,
+    MetricsOut,
+    TransitionOut,
+    UserCreate,
+    UserOut,
+    UserUpdate,
+)
 from app.repository import (
     create_card,
+    create_user,
     delete_card,
+    delete_user,
     get_board,
     get_metrics,
+    list_users,
     list_cards,
     list_transitions,
     move_card,
     seed_if_empty,
     update_card,
+    update_user,
 )
 
 
@@ -59,7 +74,10 @@ def cards() -> list[dict]:
 
 @app.post("/api/cards", response_model=CardOut, status_code=201)
 def new_card(payload: CardCreate) -> dict:
-    return create_card(payload)
+    try:
+        return create_card(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.patch("/api/cards/{card_id}/move", response_model=CardOut)
@@ -72,7 +90,10 @@ def move(card_id: UUID, payload: CardMove) -> dict:
 
 @app.patch("/api/cards/{card_id}", response_model=CardOut)
 def update(card_id: UUID, payload: CardUpdate) -> dict:
-    card = update_card(card_id, payload)
+    try:
+        card = update_card(card_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
     return card
@@ -88,6 +109,31 @@ def delete(card_id: UUID) -> Response:
 @app.get("/api/transitions", response_model=list[TransitionOut])
 def transitions() -> list[dict]:
     return list_transitions()
+
+
+@app.get("/api/users", response_model=list[UserOut])
+def users() -> list[dict]:
+    return list_users()
+
+
+@app.post("/api/users", response_model=UserOut, status_code=201)
+def new_user(payload: UserCreate) -> dict:
+    return create_user(payload)
+
+
+@app.patch("/api/users/{user_id}", response_model=UserOut)
+def patch_user(user_id: UUID, payload: UserUpdate) -> dict:
+    user = update_user(user_id, payload)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
+@app.delete("/api/users/{user_id}", status_code=204)
+def remove_user(user_id: UUID) -> Response:
+    if not delete_user(user_id):
+        raise HTTPException(status_code=404, detail="User not found")
+    return Response(status_code=204)
 
 
 @app.get("/api/metrics", response_model=MetricsOut)

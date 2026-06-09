@@ -6,8 +6,18 @@ from app.config import get_settings
 
 
 SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    role TEXT NOT NULL DEFAULT 'Produto',
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS cards (
     id UUID PRIMARY KEY,
+    owner_id UUID NULL REFERENCES users(id) ON DELETE SET NULL,
     title TEXT NOT NULL,
     owner TEXT NOT NULL,
     card_type TEXT NOT NULL,
@@ -26,6 +36,10 @@ CREATE TABLE IF NOT EXISTS card_transitions (
     note TEXT NOT NULL DEFAULT 'Transicao registrada'
 );
 
+ALTER TABLE cards ADD COLUMN IF NOT EXISTS owner_id UUID NULL REFERENCES users(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS users_name_idx ON users(name);
+CREATE INDEX IF NOT EXISTS cards_owner_idx ON cards(owner_id);
 CREATE INDEX IF NOT EXISTS cards_column_idx ON cards(column_id);
 CREATE INDEX IF NOT EXISTS card_transitions_card_time_idx ON card_transitions(card_id, moved_at);
 CREATE INDEX IF NOT EXISTS card_transitions_to_time_idx ON card_transitions(to_column, moved_at);

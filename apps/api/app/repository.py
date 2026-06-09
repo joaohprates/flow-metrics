@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 
 from app.db import get_connection
 from app.metrics import calculate_metrics
-from app.models import CardCreate, CardMove, CardUpdate
+from app.models import CardCreate, CardMove, CardUpdate, UserCreate, UserUpdate
 
 
 def utcnow() -> datetime:
@@ -13,7 +13,92 @@ def utcnow() -> datetime:
 
 def list_cards() -> list[dict[str, Any]]:
     with get_connection() as conn:
-        return conn.execute("SELECT * FROM cards ORDER BY created_at DESC").fetchall()
+        return conn.execute(
+            """
+            SELECT c.*, COALESCE(u.name, c.owner) AS owner
+            FROM cards c
+            LEFT JOIN users u ON u.id = c.owner_id
+            ORDER BY c.created_at DESC
+            """
+        ).fetchall()
+
+
+def list_users() -> list[dict[str, Any]]:
+    with get_connection() as conn:
+        return conn.execute("SELECT * FROM users ORDER BY active DESC, name ASC").fetchall()
+
+
+def create_user(payload: UserCreate) -> dict[str, Any]:
+    now = utcnow()
+    with get_connection() as conn:
+        existing = conn.execute("SELECT * FROM users WHERE lower(name) = lower(%s)", (payload.name,)).fetchone()
+        if existing:
+            return conn.execute(
+                """
+                UPDATE users
+                SET role = %s, active = TRUE, updated_at = %s
+                WHERE id = %s
+                RETURNING *
+                """,
+                (payload.role, now, existing["id"]),
+            ).fetchone()
+
+        return conn.execute(
+            """
+            INSERT INTO users (id, name, role, active, created_at, updated_at)
+            VALUES (%s, %s, %s, TRUE, %s, %s)
+            RETURNING *
+            """,
+            (uuid4(), payload.name, payload.role, now, now),
+        ).fetchone()
+
+
+def update_user(user_id: UUID, payload: UserUpdate) -> dict[str, Any] | None:
+    changes = {key: value for key, value in payload.model_dump(exclude_unset=True).items() if value is not None}
+    if not changes:
+        with get_connection() as conn:
+            return conn.execute("SELECT * FROM users WHERE id = %s", (user_id,)).fetchone()
+
+    now = utcnow()
+    with get_connection() as conn:
+        user = conn.execute("SELECT * FROM users WHERE id = %s FOR UPDATE", (user_id,)).fetchone()
+        if not user:
+            return None
+
+        fields = [f"{key} = %s" for key in changes]
+        values = list(changes.values())
+        values.extend([now, user_id])
+        updated = conn.execute(
+            f"""
+            UPDATE users
+            SET {", ".join(fields)}, updated_at = %s
+            WHERE id = %s
+            RETURNING *
+            """,
+            values,
+        ).fetchone()
+
+        if "name" in changes:
+            conn.execute(
+                "UPDATE cards SET owner = %s, updated_at = %s WHERE owner_id = %s",
+                (changes["name"], now, user_id),
+            )
+        return updated
+
+
+def delete_user(user_id: UUID) -> bool:
+    now = utcnow()
+    with get_connection() as conn:
+        deleted = conn.execute(
+            """
+            UPDATE users
+            SET active = FALSE, updated_at = %s
+            WHERE id = %s
+            RETURNING id
+            """,
+            (now, user_id),
+        ).fetchone()
+        return deleted is not None
 
 
 def list_transitions(limit: int = 50) -> list[dict[str, Any]]:
@@ -36,13 +121,14 @@ def create_card(payload: CardCreate) -> dict[str, Any]:
     now = utcnow()
 
     with get_connection() as conn:
+        owner_id, owner_name = resolve_owner(conn, payload.owner_id, payload.owner)
         card = conn.execute(
             """
-            INSERT INTO cards (id, title, owner, card_type, priority, column_id, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, 'backlog', %s, %s)
+            INSERT INTO cards (id, owner_id, title, owner, card_type, priority, column_id, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, 'backlog', %s, %s)
             RETURNING *
             """,
-            (card_id, payload.title, payload.owner, payload.card_type, payload.priority, now, now),
+            (card_id, owner_id, payload.title, owner_name, payload.card_type, payload.priority, now, now),
         ).fetchone()
         conn.execute(
             """
@@ -83,13 +169,22 @@ def move_card(card_id: UUID, payload: CardMove) -> dict[str, Any] | None:
 
 
 def update_card(card_id: UUID, payload: CardUpdate) -> dict[str, Any] | None:
-    changes = {key: value for key, value in payload.model_dump(exclude_unset=True).items() if value is not None}
+    raw_changes = payload.model_dump(exclude_unset=True)
+    owner_id = raw_changes.pop("owner_id", None)
+    owner_name = raw_changes.pop("owner", None)
+    changes = {key: value for key, value in raw_changes.items() if value is not None}
     now = utcnow()
 
     with get_connection() as conn:
         card = conn.execute("SELECT * FROM cards WHERE id = %s FOR UPDATE", (card_id,)).fetchone()
         if not card:
             return None
+
+        if owner_id is not None or owner_name is not None:
+            resolved_id, resolved_name = resolve_owner(conn, owner_id, owner_name)
+            changes["owner_id"] = resolved_id
+            changes["owner"] = resolved_name
+
         if not changes:
             return card
 
@@ -126,9 +221,10 @@ def delete_card(card_id: UUID) -> bool:
 
 def get_board() -> dict[str, Any]:
     cards = list_cards()
+    users = list_users()
     transitions = list_transitions(limit=100)
     metrics = calculate_metrics(cards, list_all_transitions())
-    return {"cards": cards, "transitions": transitions, "metrics": metrics}
+    return {"cards": cards, "users": users, "transitions": transitions, "metrics": metrics}
 
 
 def get_metrics() -> dict[str, Any]:
@@ -142,6 +238,7 @@ def list_all_transitions() -> list[dict[str, Any]]:
 
 def seed_if_empty() -> None:
     with get_connection() as conn:
+        ensure_users_from_cards(conn)
         count = conn.execute("SELECT COUNT(*) AS total FROM cards").fetchone()["total"]
         if count:
             return
@@ -156,16 +253,27 @@ def seed_if_empty() -> None:
     ]
 
     with get_connection() as conn:
+        owner_ids = ensure_users(conn, sorted({owner for _, owner, _, _, _ in specs}))
         for title, owner, card_type, priority, transitions in specs:
             card_id = uuid4()
             created_at = days_ago(transitions[0][1])
             current_column = transitions[-1][0]
             conn.execute(
                 """
-                INSERT INTO cards (id, title, owner, card_type, priority, column_id, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO cards (id, owner_id, title, owner, card_type, priority, column_id, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
-                (card_id, title, owner, card_type, priority, current_column, created_at, days_ago(transitions[-1][1])),
+                (
+                    card_id,
+                    owner_ids[owner],
+                    title,
+                    owner,
+                    card_type,
+                    priority,
+                    current_column,
+                    created_at,
+                    days_ago(transitions[-1][1]),
+                ),
             )
             previous = None
             for column_id, days in transitions:
@@ -189,3 +297,57 @@ def seed_if_empty() -> None:
 def days_ago(days: int) -> datetime:
     base = utcnow() - timedelta(days=days)
     return base.replace(hour=10 + (days % 7), minute=15, second=0, microsecond=0)
+
+
+def resolve_owner(conn: Any, owner_id: UUID | None, owner_name: str | None) -> tuple[UUID, str]:
+    if owner_id is not None:
+        user = conn.execute("SELECT * FROM users WHERE id = %s", (owner_id,)).fetchone()
+        if not user:
+            raise ValueError("Usuario responsavel nao encontrado")
+        if not user["active"]:
+            raise ValueError("Usuario responsavel esta inativo")
+        return user["id"], user["name"]
+
+    if owner_name:
+        users = ensure_users(conn, [owner_name])
+        return users[owner_name], owner_name
+
+    raise ValueError("Selecione um usuario responsavel")
+
+
+def ensure_users(conn: Any, names: list[str]) -> dict[str, UUID]:
+    now = utcnow()
+    result: dict[str, UUID] = {}
+    for name in names:
+        normalized = name.strip()
+        if not normalized:
+            continue
+        user = conn.execute("SELECT * FROM users WHERE lower(name) = lower(%s)", (normalized,)).fetchone()
+        if not user:
+            user = conn.execute(
+                """
+                INSERT INTO users (id, name, role, active, created_at, updated_at)
+                VALUES (%s, %s, 'Produto', TRUE, %s, %s)
+                RETURNING *
+                """,
+                (uuid4(), normalized, now, now),
+            ).fetchone()
+        result[user["name"]] = user["id"]
+        result[normalized] = user["id"]
+    return result
+
+
+def ensure_users_from_cards(conn: Any) -> None:
+    rows = conn.execute("SELECT DISTINCT owner FROM cards WHERE owner IS NOT NULL ORDER BY owner").fetchall()
+    if not rows:
+        return
+
+    ensure_users(conn, [row["owner"] for row in rows])
+    conn.execute(
+        """
+        UPDATE cards c
+        SET owner_id = u.id
+        FROM users u
+        WHERE c.owner_id IS NULL AND lower(c.owner) = lower(u.name)
+        """
+    )

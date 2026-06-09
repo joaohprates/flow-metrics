@@ -11,13 +11,15 @@ Priority = Literal["Alta", "Media", "Baixa"]
 
 class CardCreate(BaseModel):
     title: str = Field(min_length=3, max_length=120)
-    owner: str = Field(min_length=2, max_length=80)
+    owner_id: UUID | None = None
+    owner: str | None = Field(default=None, min_length=2, max_length=80)
     card_type: str = Field(default="Feature", min_length=2, max_length=40)
     priority: Priority = "Media"
 
 
 class CardUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=3, max_length=120)
+    owner_id: UUID | None = None
     owner: str | None = Field(default=None, min_length=2, max_length=80)
     card_type: str | None = Field(default=None, min_length=2, max_length=40)
     priority: Priority | None = None
@@ -26,6 +28,7 @@ class CardUpdate(BaseModel):
 
 class CardOut(BaseModel):
     id: UUID
+    owner_id: UUID | None = None
     title: str
     owner: str
     card_type: str
@@ -37,6 +40,26 @@ class CardOut(BaseModel):
 
 class CardMove(BaseModel):
     to_column: ColumnId
+
+
+class UserCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    role: str = Field(default="Produto", min_length=2, max_length=60)
+
+
+class UserUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=80)
+    role: str | None = Field(default=None, min_length=2, max_length=60)
+    active: bool | None = None
+
+
+class UserOut(BaseModel):
+    id: UUID
+    name: str
+    role: str
+    active: bool
+    created_at: datetime
+    updated_at: datetime
 
 
 class TransitionOut(BaseModel):
@@ -67,5 +90,6 @@ class MetricsOut(BaseModel):
 
 class BoardOut(BaseModel):
     cards: list[CardOut]
+    users: list[UserOut]
     transitions: list[TransitionOut]
     metrics: MetricsOut

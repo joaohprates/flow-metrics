@@ -3,11 +3,21 @@ export type Priority = "Alta" | "Media" | "Baixa";
 
 export type Card = {
   id: string;
+  owner_id: string | null;
   title: string;
   owner: string;
   card_type: string;
   priority: Priority;
   column_id: ColumnId;
+  created_at: string;
+  updated_at: string;
+};
+
+export type User = {
+  id: string;
+  name: string;
+  role: string;
+  active: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -40,19 +50,29 @@ export type Metrics = {
 
 export type Board = {
   cards: Card[];
+  users: User[];
   transitions: Transition[];
   metrics: Metrics;
 };
 
 export type CardPayload = {
   title: string;
-  owner: string;
+  owner_id: string;
   card_type: string;
   priority: Priority;
 };
 
 export type CardUpdatePayload = Partial<CardPayload> & {
   column_id?: ColumnId;
+};
+
+export type UserPayload = {
+  name: string;
+  role: string;
+};
+
+export type UserUpdatePayload = Partial<UserPayload> & {
+  active?: boolean;
 };
 
 export const columns: Array<{ id: ColumnId; name: string; color: string }> = [
@@ -111,6 +131,31 @@ export async function moveCard(cardId: string, to_column: ColumnId): Promise<Car
   });
   if (!response.ok) throw new Error("Nao foi possivel mover o card");
   return response.json();
+}
+
+export async function createUser(payload: UserPayload): Promise<User> {
+  const response = await fetch(apiUrl("/api/users"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw new Error("Nao foi possivel criar o usuario");
+  return response.json();
+}
+
+export async function updateUser(userId: string, payload: UserUpdatePayload): Promise<User> {
+  const response = await fetch(apiUrl(`/api/users/${userId}`), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw new Error("Nao foi possivel atualizar o usuario");
+  return response.json();
+}
+
+export async function deleteUser(userId: string): Promise<void> {
+  const response = await fetch(apiUrl(`/api/users/${userId}`), { method: "DELETE" });
+  if (!response.ok) throw new Error("Nao foi possivel desativar o usuario");
 }
 
 export function formatDays(value: number): string {

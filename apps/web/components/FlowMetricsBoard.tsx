@@ -6,14 +6,18 @@ import {
   Card,
   ColumnId,
   Priority,
+  User,
   columnName,
   columns,
   createCard,
+  createUser,
   deleteCard,
+  deleteUser,
   formatDays,
   getBoard,
   moveCard,
   updateCard,
+  updateUser,
 } from "@/lib/api";
 
 const priorityOptions: Priority[] = ["Alta", "Media", "Baixa"];
@@ -26,7 +30,9 @@ export function FlowMetricsBoard() {
   const [draggingCardId, setDraggingCardId] = useState<string | null>(null);
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   const [editingCard, setEditingCard] = useState<Card | null>(null);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
   const [formOpen, setFormOpen] = useState(false);
+  const [userFormOpen, setUserFormOpen] = useState(false);
 
   async function refresh() {
     setError(null);
@@ -46,12 +52,12 @@ export function FlowMetricsBoard() {
 
   const owners = useMemo(() => {
     if (!board) return [];
-    return Array.from(new Set(board.cards.map((card) => card.owner))).sort();
+    return board.users;
   }, [board]);
 
   const visibleCards = useMemo(() => {
     if (!board) return [];
-    return board.cards.filter((card) => ownerFilter === "all" || card.owner === ownerFilter);
+    return board.cards.filter((card) => ownerFilter === "all" || card.owner_id === ownerFilter);
   }, [board, ownerFilter]);
 
   async function onMove(cardId: string, columnId: ColumnId) {
@@ -92,7 +98,7 @@ export function FlowMetricsBoard() {
     const form = new FormData(event.currentTarget);
     const payload = {
       title: String(form.get("title") || ""),
-      owner: String(form.get("owner") || ""),
+      owner_id: String(form.get("owner_id") || ""),
       card_type: String(form.get("card_type") || "Feature"),
       priority: String(form.get("priority") || "Media") as Priority,
     };
@@ -112,6 +118,51 @@ export function FlowMetricsBoard() {
       await refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Nao foi possivel salvar o card");
+    }
+  }
+
+  async function onSaveUser(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const payload = {
+      name: String(form.get("name") || ""),
+      role: String(form.get("role") || "Produto"),
+    };
+
+    try {
+      if (editingUser) {
+        await updateUser(editingUser.id, {
+          ...payload,
+          active: form.get("active") === "on",
+        });
+      } else {
+        await createUser(payload);
+      }
+      event.currentTarget.reset();
+      setUserFormOpen(false);
+      setEditingUser(null);
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Nao foi possivel salvar o usuario");
+    }
+  }
+
+  async function onToggleUser(user: User) {
+    try {
+      await updateUser(user.id, { active: !user.active });
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Nao foi possivel atualizar o usuario");
+    }
+  }
+
+  async function onDeactivateUser(user: User) {
+    if (!window.confirm(`Desativar "${user.name}" para novos cards?`)) return;
+    try {
+      await deleteUser(user.id);
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Nao foi possivel desativar o usuario");
     }
   }
 
@@ -143,6 +194,7 @@ export function FlowMetricsBoard() {
 
         <nav className="nav-stack" aria-label="Navegacao">
           <a href="#board">Quadro</a>
+          <a href="#users">Usuarios</a>
           <a href="#metrics">Metricas</a>
           <a href="#audit">Auditoria</a>
           <a href="#architecture">Stack</a>
@@ -193,6 +245,57 @@ export function FlowMetricsBoard() {
               />
             </section>
 
+            <section className="users-panel" id="users">
+              <div className="section-heading">
+                <div>
+                  <p className="kicker">Equipe</p>
+                  <h2>Usuarios que podem receber tarefas</h2>
+                </div>
+                <button
+                  className="ghost-button"
+                  type="button"
+                  onClick={() => {
+                    setEditingUser(null);
+                    setUserFormOpen(true);
+                  }}
+                >
+                  Novo usuario
+                </button>
+              </div>
+
+              <div className="user-grid">
+                {board.users.map((user) => (
+                  <article className={`user-card ${user.active ? "" : "inactive"}`} key={user.id}>
+                    <div>
+                      <strong>{user.name}</strong>
+                      <span>{user.role}</span>
+                    </div>
+                    <small>{user.active ? "Ativo para novos cards" : "Inativo"}</small>
+                    <div className="user-actions">
+                      <button
+                        className="ghost-button"
+                        type="button"
+                        onClick={() => {
+                          setEditingUser(user);
+                          setUserFormOpen(true);
+                        }}
+                      >
+                        Editar
+                      </button>
+                      <button className="ghost-button" type="button" onClick={() => onToggleUser(user)}>
+                        {user.active ? "Pausar" : "Ativar"}
+                      </button>
+                      {user.active ? (
+                        <button className="danger-button" type="button" onClick={() => onDeactivateUser(user)}>
+                          Desativar
+                        </button>
+                      ) : null}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+
             <section className="board-panel board-panel-wide" id="board">
               <div className="section-heading">
                 <div>
@@ -205,8 +308,8 @@ export function FlowMetricsBoard() {
                     <select value={ownerFilter} onChange={(event) => setOwnerFilter(event.target.value)}>
                       <option value="all">Todos</option>
                       {owners.map((owner) => (
-                        <option key={owner} value={owner}>
-                          {owner}
+                        <option key={owner.id} value={owner.id}>
+                          {owner.name}
                         </option>
                       ))}
                     </select>
@@ -315,11 +418,22 @@ export function FlowMetricsBoard() {
       {formOpen ? (
         <CardDialog
           card={editingCard}
+          users={board?.users || []}
           onClose={() => {
             setFormOpen(false);
             setEditingCard(null);
           }}
           onSave={onSave}
+        />
+      ) : null}
+      {userFormOpen ? (
+        <UserDialog
+          user={editingUser}
+          onClose={() => {
+            setUserFormOpen(false);
+            setEditingUser(null);
+          }}
+          onSave={onSaveUser}
         />
       ) : null}
       {selectedCard ? (
@@ -341,13 +455,18 @@ function MetricTile({ label, value, note, tone }: { label: string; value: string
 
 function CardDialog({
   card,
+  users,
   onClose,
   onSave,
 }: {
   card: Card | null;
+  users: User[];
   onClose: () => void;
   onSave: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const availableUsers = users.filter((user) => user.active || user.id === card?.owner_id);
+  const defaultOwnerId = card?.owner_id || availableUsers[0]?.id || "";
+
   return (
     <div className="modal-backdrop" role="presentation">
       <form className="modal-card" onSubmit={onSave}>
@@ -374,7 +493,17 @@ function CardDialog({
         <div className="form-grid">
           <label className="field">
             <span>Responsavel</span>
-            <input name="owner" required minLength={2} maxLength={80} placeholder="Joao" defaultValue={card?.owner || ""} />
+            <select name="owner_id" required defaultValue={defaultOwnerId}>
+              <option value="" disabled>
+                Selecione um usuario
+              </option>
+              {availableUsers.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.name}
+                  {user.active ? "" : " (inativo)"}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="field">
             <span>Tipo</span>
@@ -413,6 +542,55 @@ function CardDialog({
           </button>
           <button className="primary-button" type="submit">
             {card ? "Atualizar card" : "Salvar no PostgreSQL"}
+          </button>
+        </footer>
+        {!availableUsers.length ? <p className="form-note">Crie um usuario ativo antes de cadastrar cards.</p> : null}
+      </form>
+    </div>
+  );
+}
+
+function UserDialog({
+  user,
+  onClose,
+  onSave,
+}: {
+  user: User | null;
+  onClose: () => void;
+  onSave: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <form className="modal-card compact-modal" onSubmit={onSave}>
+        <header>
+          <div>
+            <p className="kicker">{user ? "Editar usuario" : "Novo usuario"}</p>
+            <h2>{user ? "Atualizar pessoa da equipe" : "Cadastrar pessoa da equipe"}</h2>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Fechar">
+            x
+          </button>
+        </header>
+        <label className="field">
+          <span>Nome</span>
+          <input name="name" required minLength={2} maxLength={80} placeholder="Joao" defaultValue={user?.name || ""} />
+        </label>
+        <label className="field">
+          <span>Papel</span>
+          <input name="role" required minLength={2} maxLength={60} placeholder="Produto" defaultValue={user?.role || "Produto"} />
+        </label>
+        {user ? (
+          <label className="check-field">
+            <input name="active" type="checkbox" defaultChecked={user.active} />
+            <span>Ativo para novos cards</span>
+          </label>
+        ) : null}
+        <footer>
+          <button className="ghost-button" type="button" onClick={onClose}>
+            Cancelar
+          </button>
+          <button className="primary-button" type="submit">
+            {user ? "Atualizar usuario" : "Criar usuario"}
           </button>
         </footer>
       </form>
