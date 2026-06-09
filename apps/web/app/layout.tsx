@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "FlowMetrics",
-  description: "Kanban com metricas ageis nativas em Next.js, FastAPI e PostgreSQL.",
+  description: "Kanban com metricas ageis, auditoria de fluxo e acompanhamento de gargalos.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

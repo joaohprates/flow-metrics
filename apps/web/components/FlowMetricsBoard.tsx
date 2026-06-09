@@ -179,7 +179,7 @@ export function FlowMetricsBoard() {
     };
 
     setSavingCard(true);
-    setNotice({ message: "Salvando card no PostgreSQL...", tone: "saving" });
+    setNotice({ message: "Salvando card...", tone: "saving" });
     try {
       if (editingCard) {
         await updateCard(editingCard.id, {
@@ -280,7 +280,7 @@ export function FlowMetricsBoard() {
           <span className="brand-mark">FM</span>
           <div>
             <strong>FlowMetrics</strong>
-            <small>Next.js + FastAPI + PostgreSQL</small>
+            <small>Gestao visual com metricas ageis</small>
           </div>
         </div>
 
@@ -289,15 +289,14 @@ export function FlowMetricsBoard() {
           <a href="#users">Usuarios</a>
           <a href="#metrics">Metricas</a>
           <a href="#audit">Auditoria</a>
-          <a href="#architecture">Stack</a>
         </nav>
 
-        <section className="stack-card" id="architecture">
-          <span>Stack executada</span>
-          <strong>Next.js</strong>
-          <strong>FastAPI</strong>
-          <strong>PostgreSQL</strong>
-          <small>Execucao local com banco, API e web.</small>
+        <section className="stack-card" id="flow-summary">
+          <span>Visao operacional</span>
+          <strong>Fluxo</strong>
+          <strong>Metricas</strong>
+          <strong>Auditoria</strong>
+          <small>Historico de movimentacoes e gargalos em um so quadro.</small>
         </section>
       </aside>
 
@@ -307,8 +306,8 @@ export function FlowMetricsBoard() {
             <p className="kicker">Painel analitico de metricas ageis</p>
             <h1>O quadro Kanban virou uma fonte de inteligencia operacional.</h1>
             <p>
-              Cada movimento de card grava uma transicao no PostgreSQL. A API FastAPI calcula Lead Time,
-              Cycle Time, throughput e gargalos; o Next.js entrega a experiencia visual.
+              Cada movimento de card alimenta o historico do fluxo. O painel acompanha Lead Time,
+              Cycle Time, throughput e gargalos para apoiar decisoes da equipe.
             </p>
           </div>
           <div className="hero-actions">
@@ -503,7 +502,7 @@ export function FlowMetricsBoard() {
               <section className="audit-panel" id="audit">
                 <div className="section-heading stacked">
                   <p className="kicker">Auditoria</p>
-                  <h2>Ultimas transicoes gravadas no banco</h2>
+                  <h2>Ultimas movimentacoes do fluxo</h2>
                 </div>
                 <div className="audit-list">
                   {board.transitions.slice(0, 12).map((transition) => (
@@ -759,7 +758,7 @@ function CardDialog({
             Cancelar
           </button>
           <button className="primary-button" type="submit" disabled={saving}>
-            {saving ? "Salvando..." : card ? "Atualizar card" : "Salvar no PostgreSQL"}
+            {saving ? "Salvando..." : card ? "Atualizar card" : "Salvar card"}
           </button>
         </footer>
         {!availableUsers.length ? <p className="form-note">Crie um usuario ativo antes de cadastrar cards.</p> : null}
@@ -876,8 +875,8 @@ function CardDrawer({
         </button>
       </div>
       <p className="drawer-note">
-        Este card e persistido pela API FastAPI no PostgreSQL. Cada movimento cria uma linha em
-        card_transitions.
+        Este card faz parte do historico do fluxo. Cada movimento atualiza a auditoria e as metricas
+        do quadro.
       </p>
     </aside>
   );
@@ -888,7 +887,7 @@ function LoadingScreen() {
     <main className="loading-screen">
       <div className="brand-mark">FM</div>
       <h1>Carregando FlowMetrics</h1>
-      <p>Conectando ao FastAPI e ao PostgreSQL.</p>
+      <p>Carregando dados do quadro.</p>
     </main>
   );
 }
