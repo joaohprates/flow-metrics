@@ -16,6 +16,14 @@ class CardCreate(BaseModel):
     priority: Priority = "Media"
 
 
+class CardUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=3, max_length=120)
+    owner: str | None = Field(default=None, min_length=2, max_length=80)
+    card_type: str | None = Field(default=None, min_length=2, max_length=40)
+    priority: Priority | None = None
+    column_id: ColumnId | None = None
+
+
 class CardOut(BaseModel):
     id: UUID
     title: str

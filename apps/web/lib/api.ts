@@ -44,6 +44,17 @@ export type Board = {
   metrics: Metrics;
 };
 
+export type CardPayload = {
+  title: string;
+  owner: string;
+  card_type: string;
+  priority: Priority;
+};
+
+export type CardUpdatePayload = Partial<CardPayload> & {
+  column_id?: ColumnId;
+};
+
 export const columns: Array<{ id: ColumnId; name: string; color: string }> = [
   { id: "backlog", name: "Backlog", color: "#66706c" },
   { id: "todo", name: "A fazer", color: "#344c9a" },
@@ -60,12 +71,7 @@ export async function getBoard(): Promise<Board> {
   return response.json();
 }
 
-export async function createCard(payload: {
-  title: string;
-  owner: string;
-  card_type: string;
-  priority: Priority;
-}): Promise<Card> {
+export async function createCard(payload: CardPayload): Promise<Card> {
   const response = await fetch(`${API_URL}/api/cards`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -73,6 +79,21 @@ export async function createCard(payload: {
   });
   if (!response.ok) throw new Error("Nao foi possivel criar o card");
   return response.json();
+}
+
+export async function updateCard(cardId: string, payload: CardUpdatePayload): Promise<Card> {
+  const response = await fetch(`${API_URL}/api/cards/${cardId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw new Error("Nao foi possivel atualizar o card");
+  return response.json();
+}
+
+export async function deleteCard(cardId: string): Promise<void> {
+  const response = await fetch(`${API_URL}/api/cards/${cardId}`, { method: "DELETE" });
+  if (!response.ok) throw new Error("Nao foi possivel excluir o card");
 }
 
 export async function moveCard(cardId: string, to_column: ColumnId): Promise<Card> {

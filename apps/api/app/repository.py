@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 
 from app.db import get_connection
 from app.metrics import calculate_metrics
-from app.models import CardCreate, CardMove
+from app.models import CardCreate, CardMove, CardUpdate
 
 
 def utcnow() -> datetime:
@@ -80,6 +80,48 @@ def move_card(card_id: UUID, payload: CardMove) -> dict[str, Any] | None:
             (uuid4(), card_id, card["column_id"], payload.to_column, now),
         )
         return updated
+
+
+def update_card(card_id: UUID, payload: CardUpdate) -> dict[str, Any] | None:
+    changes = {key: value for key, value in payload.model_dump(exclude_unset=True).items() if value is not None}
+    now = utcnow()
+
+    with get_connection() as conn:
+        card = conn.execute("SELECT * FROM cards WHERE id = %s FOR UPDATE", (card_id,)).fetchone()
+        if not card:
+            return None
+        if not changes:
+            return card
+
+        fields = [f"{key} = %s" for key in changes]
+        values = list(changes.values())
+        values.extend([now, card_id])
+        updated = conn.execute(
+            f"""
+            UPDATE cards
+            SET {", ".join(fields)}, updated_at = %s
+            WHERE id = %s
+            RETURNING *
+            """,
+            values,
+        ).fetchone()
+
+        next_column = changes.get("column_id")
+        if next_column and next_column != card["column_id"]:
+            conn.execute(
+                """
+                INSERT INTO card_transitions (id, card_id, from_column, to_column, moved_at, note)
+                VALUES (%s, %s, %s, %s, %s, 'Status atualizado via CRUD')
+                """,
+                (uuid4(), card_id, card["column_id"], next_column, now),
+            )
+        return updated
+
+
+def delete_card(card_id: UUID) -> bool:
+    with get_connection() as conn:
+        deleted = conn.execute("DELETE FROM cards WHERE id = %s RETURNING id", (card_id,)).fetchone()
+        return deleted is not None
 
 
 def get_board() -> dict[str, Any]:

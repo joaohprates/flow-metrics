@@ -1,7 +1,10 @@
 outputs/
+.codex-run/
 node_modules/
 .next/
 .npm-cache/
+.env
+.env.*
 .pgdata-flowmetrics/
 .pgtemp/
 .venv/
