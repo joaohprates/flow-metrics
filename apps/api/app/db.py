@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 from os import getenv
+from urllib.parse import parse_qs, urlparse
 
 from psycopg import Connection, connect
 from psycopg.rows import dict_row
@@ -80,3 +81,41 @@ def get_connection() -> Connection:
 def init_db() -> None:
     with get_connection() as conn:
         conn.execute(SCHEMA_SQL)
+
+
+def database_diagnostics() -> dict[str, str]:
+    settings = get_settings()
+    parsed = urlparse(settings.database_url)
+    query = parse_qs(parsed.query)
+    host = parsed.hostname or "desconhecido"
+    port = str(parsed.port or 5432)
+    sslmode = query.get("sslmode", ["ausente"])[0]
+
+    if getenv("VERCEL") and not settings.has_external_database_url:
+        return {
+            "status": "missing",
+            "host": host,
+            "port": port,
+            "sslmode": sslmode,
+            "message": "DATABASE_URL nao configurada na Vercel.",
+        }
+
+    try:
+        with get_connection() as conn:
+            conn.execute("SELECT 1").fetchone()
+    except DatabaseUnavailable as exc:
+        return {
+            "status": "unavailable",
+            "host": host,
+            "port": port,
+            "sslmode": sslmode,
+            "message": str(exc),
+        }
+
+    return {
+        "status": "connected",
+        "host": host,
+        "port": port,
+        "sslmode": sslmode,
+        "message": "PostgreSQL conectado.",
+    }

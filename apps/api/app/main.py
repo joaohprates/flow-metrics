@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from psycopg import Error as PsycopgError
 
 from app.config import get_settings
-from app.db import DatabaseUnavailable, init_db
+from app.db import DatabaseUnavailable, database_diagnostics, init_db
 from app.models import (
     BoardOut,
     CardCreate,
@@ -91,11 +91,17 @@ def psycopg_error_handler(_: object, exc: PsycopgError) -> JSONResponse:
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
+def health() -> dict[str, object]:
+    database = database_diagnostics()
     return {
         "status": "ok",
         "service": "flowmetrics-api",
-        "database": "configured" if settings.has_external_database_url else "local-default",
+        "database": database["status"],
+        "database_configured": settings.has_external_database_url,
+        "database_host": database["host"],
+        "database_port": database["port"],
+        "database_sslmode": database["sslmode"],
+        "database_message": database["message"],
     }
 
 
