@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   Board,
   Card,
@@ -22,14 +22,18 @@ import {
 
 const priorityOptions: Priority[] = ["Alta", "Media", "Baixa"];
 type Notice = { message: string; tone: "saving" | "success" };
+type MoveQueue = { inFlight: boolean; latest: ColumnId };
 
 export function FlowMetricsBoard() {
   const [board, setBoard] = useState<Board | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const refreshSeq = useRef(0);
+  const moveQueues = useRef(new Map<string, MoveQueue>());
   const [ownerFilter, setOwnerFilter] = useState("all");
   const [draggingCardId, setDraggingCardId] = useState<string | null>(null);
+  const [movingFamilyIds, setMovingFamilyIds] = useState<Set<string>>(new Set());
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   const [editingCard, setEditingCard] = useState<Card | null>(null);
   const [creationParentId, setCreationParentId] = useState<string | null>(null);
@@ -40,10 +44,20 @@ export function FlowMetricsBoard() {
   const [userFormOpen, setUserFormOpen] = useState(false);
 
   async function refresh() {
+    const seq = ++refreshSeq.current;
     setError(null);
     try {
       const data = await getBoard();
-      setBoard(data);
+      const pendingMoves = Array.from(moveQueues.current.entries());
+      if (pendingMoves.length) {
+        data.cards = data.cards.map((card) => {
+          const pending = pendingMoves.find(([rootId]) => belongsToFamily(card, rootId));
+          return pending ? { ...card, column_id: pending[1].latest } : card;
+        });
+      }
+      if (seq === refreshSeq.current) {
+        setBoard(data);
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Erro inesperado");
     } finally {
@@ -84,22 +98,56 @@ export function FlowMetricsBoard() {
 
   async function onMove(cardId: string, columnId: ColumnId) {
     const card = board?.cards.find((item) => item.id === cardId);
-    if (!card || card.column_id === columnId) return;
+    if (!card) return;
 
+    const rootId = familyRootId(card);
+    const familyCards = board?.cards.filter((item) => belongsToFamily(item, rootId)) || [];
+    const queue = moveQueues.current.get(rootId) || { inFlight: false, latest: columnId };
+    if (familyCards.length && familyCards.every((item) => item.column_id === columnId) && !queue.inFlight) return;
+
+    refreshSeq.current += 1;
     setDraggingCardId(null);
+    setError(null);
     setBoard((current) => {
       if (!current) return current;
       return {
         ...current,
-        cards: current.cards.map((item) => (item.id === cardId ? { ...item, column_id: columnId } : item)),
+        cards: current.cards.map((item) =>
+          belongsToFamily(item, rootId) ? { ...item, column_id: columnId, updated_at: new Date().toISOString() } : item,
+        ),
       };
     });
 
+    queue.latest = columnId;
+    moveQueues.current.set(rootId, queue);
+    if (!queue.inFlight) {
+      void flushMoveQueue(rootId);
+    }
+  }
+
+  async function flushMoveQueue(rootId: string) {
+    const queue = moveQueues.current.get(rootId);
+    if (!queue) return;
+
+    queue.inFlight = true;
+    setMovingFamilyIds((current) => new Set(current).add(rootId));
+
     try {
-      await moveCard(cardId, columnId);
-      await refresh();
+      while (true) {
+        const target = queue.latest;
+        await moveCard(rootId, target);
+        const current = moveQueues.current.get(rootId);
+        if (!current || current.latest === target) break;
+      }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Nao foi possivel mover o card");
+      setError(cause instanceof Error ? cause.message : "Nao foi possivel mover a task");
+    } finally {
+      moveQueues.current.delete(rootId);
+      setMovingFamilyIds((current) => {
+        const next = new Set(current);
+        next.delete(rootId);
+        return next;
+      });
       await refresh();
     }
   }
@@ -368,11 +416,7 @@ export function FlowMetricsBoard() {
               <div className="kanban-board">
                 {columns.map((column) => {
                   const cards = visibleCards.filter((card) => card.column_id === column.id);
-                  const cardsInColumn = new Set(cards.map((card) => card.id));
                   const rootCards = cards.filter((card) => !card.parent_card_id);
-                  const orphanSubtasks = cards.filter(
-                    (card) => card.parent_card_id && !cardsInColumn.has(card.parent_card_id),
-                  );
                   return (
                     <section
                       className="lane"
@@ -394,14 +438,14 @@ export function FlowMetricsBoard() {
                         {cards.length ? (
                           <>
                             {rootCards.map((card) => {
-                              const childCards = (childrenByParentId.get(card.id) || []).filter(
-                                (child) => child.column_id === column.id,
-                              );
+                              const childCards = childrenByParentId.get(card.id) || [];
+                              const rootId = familyRootId(card);
                               return (
                                 <div className="card-family" key={card.id}>
                                   <WorkCard
                                     card={card}
                                     dragging={draggingCardId === card.id}
+                                    moving={movingFamilyIds.has(rootId)}
                                     onCreateSubtask={openCreateDialog}
                                     onDragEnd={() => setDraggingCardId(null)}
                                     onDragStart={setDraggingCardId}
@@ -414,6 +458,7 @@ export function FlowMetricsBoard() {
                                           card={child}
                                           dragging={draggingCardId === child.id}
                                           key={child.id}
+                                          moving={movingFamilyIds.has(rootId)}
                                           onCreateSubtask={openCreateDialog}
                                           onDragEnd={() => setDraggingCardId(null)}
                                           onDragStart={setDraggingCardId}
@@ -425,17 +470,6 @@ export function FlowMetricsBoard() {
                                 </div>
                               );
                             })}
-                            {orphanSubtasks.map((card) => (
-                              <WorkCard
-                                card={card}
-                                dragging={draggingCardId === card.id}
-                                key={card.id}
-                                onCreateSubtask={openCreateDialog}
-                                onDragEnd={() => setDraggingCardId(null)}
-                                onDragStart={setDraggingCardId}
-                                onSelect={setSelectedCard}
-                              />
-                            ))}
                           </>
                         ) : (
                           <div className="empty-lane">Sem cards nesta etapa</div>
@@ -531,6 +565,7 @@ export function FlowMetricsBoard() {
 function WorkCard({
   card,
   dragging,
+  moving,
   onCreateSubtask,
   onDragEnd,
   onDragStart,
@@ -538,6 +573,7 @@ function WorkCard({
 }: {
   card: Card;
   dragging: boolean;
+  moving: boolean;
   onCreateSubtask: (parentCardId: string) => void;
   onDragEnd: () => void;
   onDragStart: (cardId: string) => void;
@@ -547,9 +583,13 @@ function WorkCard({
 
   return (
     <article
-      className={`work-card ${isSubtask ? "subtask-card" : ""} ${dragging ? "dragging" : ""}`}
-      draggable
+      className={`work-card ${isSubtask ? "subtask-card" : ""} ${dragging ? "dragging" : ""} ${moving ? "syncing" : ""}`}
+      draggable={!isSubtask}
       onDragStart={(event) => {
+        if (isSubtask) {
+          event.preventDefault();
+          return;
+        }
         onDragStart(card.id);
         event.dataTransfer.setData("text/plain", card.id);
       }}
@@ -564,7 +604,7 @@ function WorkCard({
         <span>{card.priority}</span>
       </div>
       <div className="card-foot">
-        <small>Atualizado {formatDate(card.updated_at)}</small>
+        <small>{isSubtask ? "Acompanha a task mae" : `Atualizado ${formatDate(card.updated_at)}`}</small>
         {!isSubtask ? (
           <button
             className="subtask-button"
@@ -581,6 +621,14 @@ function WorkCard({
       {!isSubtask && card.child_count > 0 ? <span className="child-count">{card.child_count} subtasks</span> : null}
     </article>
   );
+}
+
+function familyRootId(card: Card): string {
+  return card.parent_card_id || card.id;
+}
+
+function belongsToFamily(card: Card, rootId: string): boolean {
+  return card.id === rootId || card.parent_card_id === rootId;
 }
 
 function Toast({ notice }: { notice: Notice }) {

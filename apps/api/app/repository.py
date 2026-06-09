@@ -141,26 +141,7 @@ def move_card(card_id: UUID, payload: CardMove) -> dict[str, Any] | None:
         card = conn.execute("SELECT * FROM cards WHERE id = %s FOR UPDATE", (card_id,)).fetchone()
         if not card:
             return None
-        if card["column_id"] == payload.to_column:
-            return card
-
-        updated = conn.execute(
-            """
-            UPDATE cards
-            SET column_id = %s, updated_at = %s
-            WHERE id = %s
-            RETURNING *
-            """,
-            (payload.to_column, now, card_id),
-        ).fetchone()
-        conn.execute(
-            """
-            INSERT INTO card_transitions (id, card_id, from_column, to_column, moved_at, note)
-            VALUES (%s, %s, %s, %s, %s, 'Movido via quadro Kanban')
-            """,
-            (uuid4(), card_id, card["column_id"], payload.to_column, now),
-        )
-        return updated
+        return move_card_family(conn, card, payload.to_column, now, "Movido via quadro Kanban")
 
 
 def update_card(card_id: UUID, payload: CardUpdate) -> dict[str, Any] | None:
@@ -169,6 +150,7 @@ def update_card(card_id: UUID, payload: CardUpdate) -> dict[str, Any] | None:
     owner_name = raw_changes.pop("owner", None)
     parent_marker = object()
     parent_card_id = raw_changes.pop("parent_card_id", parent_marker)
+    next_column = raw_changes.pop("column_id", None)
     changes = {key: value for key, value in raw_changes.items() if value is not None}
     now = utcnow()
 
@@ -185,38 +167,68 @@ def update_card(card_id: UUID, payload: CardUpdate) -> dict[str, Any] | None:
         if parent_card_id is not parent_marker:
             changes["parent_card_id"] = resolve_parent_card(conn, parent_card_id, current_card_id=card_id)
 
-        if not changes:
+        if not changes and not next_column:
             return card
 
-        fields = [f"{key} = %s" for key in changes]
-        values = list(changes.values())
-        values.extend([now, card_id])
-        updated = conn.execute(
-            f"""
-            UPDATE cards
-            SET {", ".join(fields)}, updated_at = %s
-            WHERE id = %s
-            RETURNING *
-            """,
-            values,
-        ).fetchone()
-
-        next_column = changes.get("column_id")
-        if next_column and next_column != card["column_id"]:
+        if changes:
+            fields = [f"{key} = %s" for key in changes]
+            values = list(changes.values())
+            values.extend([now, card_id])
             conn.execute(
-                """
-                INSERT INTO card_transitions (id, card_id, from_column, to_column, moved_at, note)
-                VALUES (%s, %s, %s, %s, %s, 'Status atualizado via CRUD')
+                f"""
+                UPDATE cards
+                SET {", ".join(fields)}, updated_at = %s
+                WHERE id = %s
+                RETURNING *
                 """,
-                (uuid4(), card_id, card["column_id"], next_column, now),
-            )
-        return updated
+                values,
+            ).fetchone()
+
+        if next_column:
+            return move_card_family(conn, card, next_column, now, "Status atualizado via CRUD")
+
+        return select_card_by_id(conn, card_id)
 
 
 def delete_card(card_id: UUID) -> bool:
     with get_connection() as conn:
         deleted = conn.execute("DELETE FROM cards WHERE id = %s RETURNING id", (card_id,)).fetchone()
         return deleted is not None
+
+
+def move_card_family(conn: Any, card: dict[str, Any], to_column: str, now: datetime, note: str) -> dict[str, Any]:
+    root_id = card["parent_card_id"] or card["id"]
+    family = conn.execute(
+        """
+        SELECT *
+        FROM cards
+        WHERE id = %s OR parent_card_id = %s
+        FOR UPDATE
+        """,
+        (root_id, root_id),
+    ).fetchall()
+
+    for item in family:
+        if item["column_id"] == to_column:
+            continue
+        conn.execute(
+            """
+            UPDATE cards
+            SET column_id = %s, updated_at = %s
+            WHERE id = %s
+            """,
+            (to_column, now, item["id"]),
+        )
+        transition_note = note if item["id"] == root_id else f"{note} junto da task mae"
+        conn.execute(
+            """
+            INSERT INTO card_transitions (id, card_id, from_column, to_column, moved_at, note)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (uuid4(), item["id"], item["column_id"], to_column, now, transition_note),
+        )
+
+    return select_card_by_id(conn, card["id"])
 
 
 def resolve_parent_card(conn: Any, parent_card_id: UUID | None, current_card_id: UUID | None = None) -> UUID | None:
@@ -278,6 +290,27 @@ def select_cards(conn: Any) -> list[dict[str, Any]]:
         ORDER BY COALESCE(p.created_at, c.created_at) DESC, c.parent_card_id NULLS FIRST, c.created_at DESC
         """
     ).fetchall()
+
+
+def select_card_by_id(conn: Any, card_id: UUID) -> dict[str, Any]:
+    return conn.execute(
+        """
+        SELECT
+            c.*,
+            COALESCE(u.name, c.owner) AS owner,
+            p.title AS parent_title,
+            (
+                SELECT COUNT(*)::int
+                FROM cards children
+                WHERE children.parent_card_id = c.id
+            ) AS child_count
+        FROM cards c
+        LEFT JOIN users u ON u.id = c.owner_id
+        LEFT JOIN cards p ON p.id = c.parent_card_id
+        WHERE c.id = %s
+        """,
+        (card_id,),
+    ).fetchone()
 
 
 def select_users(conn: Any) -> list[dict[str, Any]]:
@@ -367,7 +400,7 @@ def seed_if_empty() -> None:
                 "Thalys",
                 "Subtask",
                 "Alta",
-                [("backlog", 13), ("todo", 10), ("doing", 7), ("review", 4), ("done", 2)],
+                [("backlog", 13), ("todo", 10), ("doing", 7), ("review", 4), ("done", 3)],
             ),
             (
                 "Validar ordem cronologica das transicoes",
@@ -375,7 +408,7 @@ def seed_if_empty() -> None:
                 "Gustavo",
                 "Subtask",
                 "Media",
-                [("backlog", 11), ("todo", 8), ("doing", 5)],
+                [("backlog", 11), ("todo", 8), ("doing", 5), ("review", 4), ("done", 3)],
             ),
             (
                 "Adicionar seletor de responsavel no formulario",

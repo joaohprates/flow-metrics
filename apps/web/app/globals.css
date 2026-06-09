@@ -622,6 +622,7 @@ select:focus {
     linear-gradient(135deg, rgb(231 251 255 / 80%), rgb(255 255 255 / 62%)),
     linear-gradient(95deg, rgb(23 184 204 / 22%), rgb(125 92 255 / 18%), rgb(255 90 138 / 14%));
   box-shadow: 0 10px 24px rgb(28 107 126 / 12%);
+  cursor: default;
 }
 
 .work-card::before {
@@ -647,6 +648,22 @@ select:focus {
 
 .work-card.dragging {
   opacity: 0.52;
+}
+
+.work-card.syncing {
+  box-shadow: 0 18px 42px rgb(56 103 255 / 17%);
+}
+
+.work-card.syncing::after {
+  content: "";
+  position: absolute;
+  inset: auto 12px 10px auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--blue);
+  box-shadow: 0 0 0 6px rgb(56 103 255 / 10%);
+  animation: saving-pulse 900ms ease-in-out infinite;
 }
 
 .work-card h3 {

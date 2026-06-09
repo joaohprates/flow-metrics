@@ -49,6 +49,13 @@ CREATE INDEX IF NOT EXISTS cards_owner_idx ON cards(owner_id);
 CREATE INDEX IF NOT EXISTS cards_column_idx ON cards(column_id);
 CREATE INDEX IF NOT EXISTS card_transitions_card_time_idx ON card_transitions(card_id, moved_at);
 CREATE INDEX IF NOT EXISTS card_transitions_to_time_idx ON card_transitions(to_column, moved_at);
+
+UPDATE cards child
+SET column_id = parent.column_id,
+    updated_at = GREATEST(child.updated_at, parent.updated_at)
+FROM cards parent
+WHERE child.parent_card_id = parent.id
+  AND child.column_id <> parent.column_id;
 """
 
 
