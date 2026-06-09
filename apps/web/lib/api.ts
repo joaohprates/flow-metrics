@@ -63,16 +63,23 @@ export const columns: Array<{ id: ColumnId; name: string; color: string }> = [
   { id: "done", name: "Concluido", color: "#d96045" },
 ];
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.NEXT_PUBLIC_BACKEND_URL ||
+  "http://127.0.0.1:8000";
+
+function apiUrl(path: string): string {
+  return `${API_URL.replace(/\/$/, "")}${path}`;
+}
 
 export async function getBoard(): Promise<Board> {
-  const response = await fetch(`${API_URL}/api/board`, { cache: "no-store" });
+  const response = await fetch(apiUrl("/api/board"), { cache: "no-store" });
   if (!response.ok) throw new Error("Nao foi possivel carregar o quadro");
   return response.json();
 }
 
 export async function createCard(payload: CardPayload): Promise<Card> {
-  const response = await fetch(`${API_URL}/api/cards`, {
+  const response = await fetch(apiUrl("/api/cards"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -82,7 +89,7 @@ export async function createCard(payload: CardPayload): Promise<Card> {
 }
 
 export async function updateCard(cardId: string, payload: CardUpdatePayload): Promise<Card> {
-  const response = await fetch(`${API_URL}/api/cards/${cardId}`, {
+  const response = await fetch(apiUrl(`/api/cards/${cardId}`), {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -92,12 +99,12 @@ export async function updateCard(cardId: string, payload: CardUpdatePayload): Pr
 }
 
 export async function deleteCard(cardId: string): Promise<void> {
-  const response = await fetch(`${API_URL}/api/cards/${cardId}`, { method: "DELETE" });
+  const response = await fetch(apiUrl(`/api/cards/${cardId}`), { method: "DELETE" });
   if (!response.ok) throw new Error("Nao foi possivel excluir o card");
 }
 
 export async function moveCard(cardId: string, to_column: ColumnId): Promise<Card> {
-  const response = await fetch(`${API_URL}/api/cards/${cardId}/move`, {
+  const response = await fetch(apiUrl(`/api/cards/${cardId}/move`), {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ to_column }),
