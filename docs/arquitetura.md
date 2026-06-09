@@ -22,22 +22,24 @@ flowchart TB
         web["apps/web\nNext.js / React / TypeScript"]
         api["apps/api\nFastAPI / Python"]
         service["Metrics Service\nLead Time, Cycle Time, Throughput, Gargalos"]
+        users["Users CRUD\nusuarios responsaveis"]
         repo["Repository\nSQL e persistencia"]
-        db[("PostgreSQL 16\ncards e card_transitions")]
+        db[("PostgreSQL 16\nusers, cards e card_transitions")]
     end
 
     compose["Docker Compose"]
+    vercel["Vercel Services\nweb / backend"]
     ci["GitHub Actions\nplanejado"]
-    railway["Railway\nplanejado"]
 
     gestor -->|"Acessa via navegador"| web
     web -->|"JSON / HTTP"| api
+    api -->|"Gerencia responsaveis"| users
     api -->|"Executa regras"| service
     api -->|"Le e grava dados"| repo
     repo --> db
     compose -->|"Sobe postgres, api e web"| flowmetrics
-    ci -.->|"Build e testes"| railway
-    railway -.->|"Deploy futuro"| flowmetrics
+    vercel -->|"Publica web em / e backend em /_/backend"| flowmetrics
+    ci -.->|"Build e testes"| flowmetrics
 ```
 
 ## Camadas internas da API
@@ -60,10 +62,21 @@ flowchart LR
 
 ```mermaid
 erDiagram
+    USERS ||--o{ CARDS : owns
     CARDS ||--o{ CARD_TRANSITIONS : records
+
+    USERS {
+        uuid id PK
+        string name
+        string role
+        boolean active
+        timestamp created_at
+        timestamp updated_at
+    }
 
     CARDS {
         uuid id PK
+        uuid owner_id FK
         string title
         string owner
         string card_type
@@ -86,6 +99,7 @@ erDiagram
 ## Decisoes arquiteturais
 
 - O historico de transicoes e a fonte da verdade para metricas de fluxo.
+- Usuarios sao gerenciados como entidade propria para evitar responsavel digitado livremente no card.
 - Lead Time e calculado da criacao do card ate a entrada em Concluido.
 - Cycle Time e calculado da primeira entrada em Em Progresso ate a entrada em Concluido.
 - Throughput considera cards concluidos nos ultimos 7 dias.
