@@ -3,6 +3,9 @@ export type Priority = "Alta" | "Media" | "Baixa";
 
 export type Card = {
   id: string;
+  parent_card_id: string | null;
+  parent_title: string | null;
+  child_count: number;
   owner_id: string | null;
   title: string;
   owner: string;
@@ -57,6 +60,7 @@ export type Board = {
 
 export type CardPayload = {
   title: string;
+  parent_card_id?: string | null;
   owner_id: string;
   card_type: string;
   priority: Priority;

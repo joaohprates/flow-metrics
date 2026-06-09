@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS cards (
     id UUID PRIMARY KEY,
+    parent_card_id UUID NULL REFERENCES cards(id) ON DELETE SET NULL,
     owner_id UUID NULL REFERENCES users(id) ON DELETE SET NULL,
     title TEXT NOT NULL,
     owner TEXT NOT NULL,
@@ -40,8 +41,10 @@ CREATE TABLE IF NOT EXISTS card_transitions (
 );
 
 ALTER TABLE cards ADD COLUMN IF NOT EXISTS owner_id UUID NULL REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE cards ADD COLUMN IF NOT EXISTS parent_card_id UUID NULL REFERENCES cards(id) ON DELETE SET NULL;
 
 CREATE INDEX IF NOT EXISTS users_name_idx ON users(name);
+CREATE INDEX IF NOT EXISTS cards_parent_idx ON cards(parent_card_id);
 CREATE INDEX IF NOT EXISTS cards_owner_idx ON cards(owner_id);
 CREATE INDEX IF NOT EXISTS cards_column_idx ON cards(column_id);
 CREATE INDEX IF NOT EXISTS card_transitions_card_time_idx ON card_transitions(card_id, moved_at);

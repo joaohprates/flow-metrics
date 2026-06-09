@@ -15,10 +15,19 @@ def list_cards() -> list[dict[str, Any]]:
     with get_connection() as conn:
         return conn.execute(
             """
-            SELECT c.*, COALESCE(u.name, c.owner) AS owner
+            SELECT
+                c.*,
+                COALESCE(u.name, c.owner) AS owner,
+                p.title AS parent_title,
+                (
+                    SELECT COUNT(*)::int
+                    FROM cards children
+                    WHERE children.parent_card_id = c.id
+                ) AS child_count
             FROM cards c
             LEFT JOIN users u ON u.id = c.owner_id
-            ORDER BY c.created_at DESC
+            LEFT JOIN cards p ON p.id = c.parent_card_id
+            ORDER BY COALESCE(p.created_at, c.created_at) DESC, c.parent_card_id NULLS FIRST, c.created_at DESC
             """
         ).fetchall()
 
@@ -122,13 +131,24 @@ def create_card(payload: CardCreate) -> dict[str, Any]:
 
     with get_connection() as conn:
         owner_id, owner_name = resolve_owner(conn, payload.owner_id, payload.owner)
+        parent_card_id = resolve_parent_card(conn, payload.parent_card_id)
         card = conn.execute(
             """
-            INSERT INTO cards (id, owner_id, title, owner, card_type, priority, column_id, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, 'backlog', %s, %s)
+            INSERT INTO cards (id, parent_card_id, owner_id, title, owner, card_type, priority, column_id, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, 'backlog', %s, %s)
             RETURNING *
             """,
-            (card_id, owner_id, payload.title, owner_name, payload.card_type, payload.priority, now, now),
+            (
+                card_id,
+                parent_card_id,
+                owner_id,
+                payload.title,
+                owner_name,
+                payload.card_type,
+                payload.priority,
+                now,
+                now,
+            ),
         ).fetchone()
         conn.execute(
             """
@@ -172,6 +192,8 @@ def update_card(card_id: UUID, payload: CardUpdate) -> dict[str, Any] | None:
     raw_changes = payload.model_dump(exclude_unset=True)
     owner_id = raw_changes.pop("owner_id", None)
     owner_name = raw_changes.pop("owner", None)
+    parent_marker = object()
+    parent_card_id = raw_changes.pop("parent_card_id", parent_marker)
     changes = {key: value for key, value in raw_changes.items() if value is not None}
     now = utcnow()
 
@@ -184,6 +206,9 @@ def update_card(card_id: UUID, payload: CardUpdate) -> dict[str, Any] | None:
             resolved_id, resolved_name = resolve_owner(conn, owner_id, owner_name)
             changes["owner_id"] = resolved_id
             changes["owner"] = resolved_name
+
+        if parent_card_id is not parent_marker:
+            changes["parent_card_id"] = resolve_parent_card(conn, parent_card_id, current_card_id=card_id)
 
         if not changes:
             return card
@@ -217,6 +242,28 @@ def delete_card(card_id: UUID) -> bool:
     with get_connection() as conn:
         deleted = conn.execute("DELETE FROM cards WHERE id = %s RETURNING id", (card_id,)).fetchone()
         return deleted is not None
+
+
+def resolve_parent_card(conn: Any, parent_card_id: UUID | None, current_card_id: UUID | None = None) -> UUID | None:
+    if parent_card_id is None:
+        return None
+
+    if current_card_id is not None and parent_card_id == current_card_id:
+        raise ValueError("Uma subtask nao pode ser filha dela mesma")
+    if current_card_id is not None:
+        children = conn.execute(
+            "SELECT COUNT(*) AS total FROM cards WHERE parent_card_id = %s",
+            (current_card_id,),
+        ).fetchone()["total"]
+        if children:
+            raise ValueError("Cards com subtasks nao podem virar subtasks neste MVP")
+
+    parent = conn.execute("SELECT id, parent_card_id FROM cards WHERE id = %s", (parent_card_id,)).fetchone()
+    if not parent:
+        raise ValueError("Card pai nao encontrado")
+    if parent["parent_card_id"] is not None:
+        raise ValueError("Subtasks nao podem ter subtasks filhas neste MVP")
+    return parent["id"]
 
 
 def get_board() -> dict[str, Any]:
@@ -254,8 +301,10 @@ def seed_if_empty() -> None:
 
     with get_connection() as conn:
         owner_ids = ensure_users(conn, sorted({owner for _, owner, _, _, _ in specs}))
+        created_cards: dict[str, UUID] = {}
         for title, owner, card_type, priority, transitions in specs:
             card_id = uuid4()
+            created_cards[title] = card_id
             created_at = days_ago(transitions[0][1])
             current_column = transitions[-1][0]
             conn.execute(
@@ -289,6 +338,74 @@ def seed_if_empty() -> None:
                         column_id,
                         days_ago(days),
                         "Card criado" if previous is None else "Transicao de seed",
+                    ),
+                )
+                previous = column_id
+
+        subtask_specs = [
+            (
+                "Registrar evento ao soltar card na coluna",
+                "Instrumentar transicoes dos cards",
+                "Thalys",
+                "Subtask",
+                "Alta",
+                [("backlog", 13), ("todo", 10), ("doing", 7), ("review", 4), ("done", 2)],
+            ),
+            (
+                "Validar ordem cronologica das transicoes",
+                "Instrumentar transicoes dos cards",
+                "Gustavo",
+                "Subtask",
+                "Media",
+                [("backlog", 11), ("todo", 8), ("doing", 5)],
+            ),
+            (
+                "Adicionar seletor de responsavel no formulario",
+                "Jornada de criacao de card",
+                "Melissa",
+                "Subtask",
+                "Baixa",
+                [("backlog", 3), ("todo", 2)],
+            ),
+        ]
+
+        for title, parent_title, owner, card_type, priority, transitions in subtask_specs:
+            parent_id = created_cards[parent_title]
+            card_id = uuid4()
+            created_at = days_ago(transitions[0][1])
+            current_column = transitions[-1][0]
+            conn.execute(
+                """
+                INSERT INTO cards (id, parent_card_id, owner_id, title, owner, card_type, priority, column_id, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    card_id,
+                    parent_id,
+                    owner_ids[owner],
+                    title,
+                    owner,
+                    card_type,
+                    priority,
+                    current_column,
+                    created_at,
+                    days_ago(transitions[-1][1]),
+                ),
+            )
+            previous = None
+            for column_id, days in transitions:
+                conn.execute(
+                    """
+                    INSERT INTO card_transitions (id, card_id, from_column, to_column, moved_at, note)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        uuid4(),
+                        card_id,
+                        previous,
+                        column_id,
+                        days_ago(days),
+                        "Subtask criada" if previous is None else "Transicao de seed",
                     ),
                 )
                 previous = column_id

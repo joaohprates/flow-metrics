@@ -107,6 +107,7 @@ Nao configure `NEXT_PUBLIC_API_URL` na Vercel, a menos que queira apontar para u
 - Quadro Kanban com cinco colunas: Backlog, A Fazer, Em Progresso, Revisao e Concluido.
 - Drag-and-drop de cards entre colunas no frontend.
 - Criacao de novos cards via API.
+- Criacao de subtasks filhas com visual compacto e vinculo ao card pai.
 - Persistencia real em PostgreSQL.
 - Registro automatico de timestamp a cada transicao.
 - Historico de auditoria vindo da tabela `card_transitions`.

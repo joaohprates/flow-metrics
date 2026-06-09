@@ -30,6 +30,7 @@ export function FlowMetricsBoard() {
   const [draggingCardId, setDraggingCardId] = useState<string | null>(null);
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   const [editingCard, setEditingCard] = useState<Card | null>(null);
+  const [creationParentId, setCreationParentId] = useState<string | null>(null);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [userFormOpen, setUserFormOpen] = useState(false);
@@ -60,6 +61,17 @@ export function FlowMetricsBoard() {
     return board.cards.filter((card) => ownerFilter === "all" || card.owner_id === ownerFilter);
   }, [board, ownerFilter]);
 
+  const childrenByParentId = useMemo(() => {
+    const groups = new Map<string, Card[]>();
+    for (const card of visibleCards) {
+      if (!card.parent_card_id) continue;
+      const children = groups.get(card.parent_card_id) || [];
+      children.push(card);
+      groups.set(card.parent_card_id, children);
+    }
+    return groups;
+  }, [visibleCards]);
+
   async function onMove(cardId: string, columnId: ColumnId) {
     const card = board?.cards.find((item) => item.id === cardId);
     if (!card || card.column_id === columnId) return;
@@ -82,14 +94,17 @@ export function FlowMetricsBoard() {
     }
   }
 
-  function openCreateDialog() {
+  function openCreateDialog(parentCardId: string | null = null) {
+    setSelectedCard(null);
     setEditingCard(null);
+    setCreationParentId(parentCardId);
     setFormOpen(true);
   }
 
   function openEditDialog(card: Card) {
     setSelectedCard(null);
     setEditingCard(card);
+    setCreationParentId(null);
     setFormOpen(true);
   }
 
@@ -98,6 +113,7 @@ export function FlowMetricsBoard() {
     const form = new FormData(event.currentTarget);
     const payload = {
       title: String(form.get("title") || ""),
+      parent_card_id: String(form.get("parent_card_id") || "") || null,
       owner_id: String(form.get("owner_id") || ""),
       card_type: String(form.get("card_type") || "Feature"),
       priority: String(form.get("priority") || "Media") as Priority,
@@ -115,6 +131,7 @@ export function FlowMetricsBoard() {
       event.currentTarget.reset();
       setFormOpen(false);
       setEditingCard(null);
+      setCreationParentId(null);
       await refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Nao foi possivel salvar o card");
@@ -223,7 +240,7 @@ export function FlowMetricsBoard() {
             <button className="ghost-button" type="button" onClick={refresh}>
               Atualizar
             </button>
-            <button className="primary-button" type="button" onClick={openCreateDialog}>
+            <button className="primary-button" type="button" onClick={() => openCreateDialog()}>
               Novo card
             </button>
           </div>
@@ -314,7 +331,7 @@ export function FlowMetricsBoard() {
                       ))}
                     </select>
                   </label>
-                  <button className="ghost-button" type="button" onClick={openCreateDialog}>
+                  <button className="ghost-button" type="button" onClick={() => openCreateDialog()}>
                     Novo card
                   </button>
                 </div>
@@ -323,6 +340,11 @@ export function FlowMetricsBoard() {
               <div className="kanban-board">
                 {columns.map((column) => {
                   const cards = visibleCards.filter((card) => card.column_id === column.id);
+                  const cardsInColumn = new Set(cards.map((card) => card.id));
+                  const rootCards = cards.filter((card) => !card.parent_card_id);
+                  const orphanSubtasks = cards.filter(
+                    (card) => card.parent_card_id && !cardsInColumn.has(card.parent_card_id),
+                  );
                   return (
                     <section
                       className="lane"
@@ -342,27 +364,51 @@ export function FlowMetricsBoard() {
                       </div>
                       <div className="card-list">
                         {cards.length ? (
-                          cards.map((card) => (
-                            <article
-                              className={`work-card ${draggingCardId === card.id ? "dragging" : ""}`}
-                              key={card.id}
-                              draggable
-                              onDragStart={(event) => {
-                                setDraggingCardId(card.id);
-                                event.dataTransfer.setData("text/plain", card.id);
-                              }}
-                              onDragEnd={() => setDraggingCardId(null)}
-                              onClick={() => setSelectedCard(card)}
-                            >
-                              <h3>{card.title}</h3>
-                              <div className="card-meta">
-                                <span>{card.owner}</span>
-                                <span>{card.card_type}</span>
-                                <span>{card.priority}</span>
-                              </div>
-                              <small>Atualizado {formatDate(card.updated_at)}</small>
-                            </article>
-                          ))
+                          <>
+                            {rootCards.map((card) => {
+                              const childCards = (childrenByParentId.get(card.id) || []).filter(
+                                (child) => child.column_id === column.id,
+                              );
+                              return (
+                                <div className="card-family" key={card.id}>
+                                  <WorkCard
+                                    card={card}
+                                    dragging={draggingCardId === card.id}
+                                    onCreateSubtask={openCreateDialog}
+                                    onDragEnd={() => setDraggingCardId(null)}
+                                    onDragStart={setDraggingCardId}
+                                    onSelect={setSelectedCard}
+                                  />
+                                  {childCards.length ? (
+                                    <div className="subtask-stack">
+                                      {childCards.map((child) => (
+                                        <WorkCard
+                                          card={child}
+                                          dragging={draggingCardId === child.id}
+                                          key={child.id}
+                                          onCreateSubtask={openCreateDialog}
+                                          onDragEnd={() => setDraggingCardId(null)}
+                                          onDragStart={setDraggingCardId}
+                                          onSelect={setSelectedCard}
+                                        />
+                                      ))}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              );
+                            })}
+                            {orphanSubtasks.map((card) => (
+                              <WorkCard
+                                card={card}
+                                dragging={draggingCardId === card.id}
+                                key={card.id}
+                                onCreateSubtask={openCreateDialog}
+                                onDragEnd={() => setDraggingCardId(null)}
+                                onDragStart={setDraggingCardId}
+                                onSelect={setSelectedCard}
+                              />
+                            ))}
+                          </>
                         ) : (
                           <div className="empty-lane">Sem cards nesta etapa</div>
                         )}
@@ -418,10 +464,13 @@ export function FlowMetricsBoard() {
       {formOpen ? (
         <CardDialog
           card={editingCard}
+          creationParentId={creationParentId}
+          cards={board?.cards || []}
           users={board?.users || []}
           onClose={() => {
             setFormOpen(false);
             setEditingCard(null);
+            setCreationParentId(null);
           }}
           onSave={onSave}
         />
@@ -437,9 +486,70 @@ export function FlowMetricsBoard() {
         />
       ) : null}
       {selectedCard ? (
-        <CardDrawer card={selectedCard} onClose={() => setSelectedCard(null)} onDelete={onDelete} onEdit={openEditDialog} />
+        <CardDrawer
+          card={selectedCard}
+          onClose={() => setSelectedCard(null)}
+          onCreateSubtask={openCreateDialog}
+          onDelete={onDelete}
+          onEdit={openEditDialog}
+        />
       ) : null}
     </main>
+  );
+}
+
+function WorkCard({
+  card,
+  dragging,
+  onCreateSubtask,
+  onDragEnd,
+  onDragStart,
+  onSelect,
+}: {
+  card: Card;
+  dragging: boolean;
+  onCreateSubtask: (parentCardId: string) => void;
+  onDragEnd: () => void;
+  onDragStart: (cardId: string) => void;
+  onSelect: (card: Card) => void;
+}) {
+  const isSubtask = Boolean(card.parent_card_id);
+
+  return (
+    <article
+      className={`work-card ${isSubtask ? "subtask-card" : ""} ${dragging ? "dragging" : ""}`}
+      draggable
+      onDragStart={(event) => {
+        onDragStart(card.id);
+        event.dataTransfer.setData("text/plain", card.id);
+      }}
+      onDragEnd={onDragEnd}
+      onClick={() => onSelect(card)}
+    >
+      {isSubtask ? <span className="parent-chip">Filha de {card.parent_title || "card pai"}</span> : null}
+      <h3>{card.title}</h3>
+      <div className="card-meta">
+        <span>{card.owner}</span>
+        <span>{card.card_type}</span>
+        <span>{card.priority}</span>
+      </div>
+      <div className="card-foot">
+        <small>Atualizado {formatDate(card.updated_at)}</small>
+        {!isSubtask ? (
+          <button
+            className="subtask-button"
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onCreateSubtask(card.id);
+            }}
+          >
+            Subtask
+          </button>
+        ) : null}
+      </div>
+      {!isSubtask && card.child_count > 0 ? <span className="child-count">{card.child_count} subtasks</span> : null}
+    </article>
   );
 }
 
@@ -455,17 +565,24 @@ function MetricTile({ label, value, note, tone }: { label: string; value: string
 
 function CardDialog({
   card,
+  cards,
+  creationParentId,
   users,
   onClose,
   onSave,
 }: {
   card: Card | null;
+  cards: Card[];
+  creationParentId: string | null;
   users: User[];
   onClose: () => void;
   onSave: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   const availableUsers = users.filter((user) => user.active || user.id === card?.owner_id);
   const defaultOwnerId = card?.owner_id || availableUsers[0]?.id || "";
+  const parentOptions = cards.filter((item) => !item.parent_card_id && item.id !== card?.id);
+  const defaultParentId = card?.parent_card_id || creationParentId || "";
+  const defaultType = card?.card_type || (creationParentId ? "Subtask" : "Feature");
 
   return (
     <div className="modal-backdrop" role="presentation">
@@ -490,6 +607,17 @@ function CardDialog({
             defaultValue={card?.title || ""}
           />
         </label>
+        <label className="field">
+          <span>Vinculo</span>
+          <select name="parent_card_id" defaultValue={defaultParentId} disabled={Boolean(card?.child_count)}>
+            <option value="">Card principal</option>
+            {parentOptions.map((item) => (
+              <option key={item.id} value={item.id}>
+                Subtask de: {item.title}
+              </option>
+            ))}
+          </select>
+        </label>
         <div className="form-grid">
           <label className="field">
             <span>Responsavel</span>
@@ -507,8 +635,9 @@ function CardDialog({
           </label>
           <label className="field">
             <span>Tipo</span>
-            <select name="card_type" defaultValue={card?.card_type || "Feature"}>
+            <select name="card_type" defaultValue={defaultType}>
               <option>Feature</option>
+              <option>Subtask</option>
               <option>Bug</option>
               <option>Infra</option>
               <option>UX</option>
@@ -601,14 +730,18 @@ function UserDialog({
 function CardDrawer({
   card,
   onClose,
+  onCreateSubtask,
   onDelete,
   onEdit,
 }: {
   card: Card;
   onClose: () => void;
+  onCreateSubtask: (parentCardId: string) => void;
   onDelete: (card: Card) => void;
   onEdit: (card: Card) => void;
 }) {
+  const isSubtask = Boolean(card.parent_card_id);
+
   return (
     <aside className="drawer">
       <button className="icon-button" type="button" onClick={onClose} aria-label="Fechar detalhes">
@@ -626,15 +759,24 @@ function CardDrawer({
           <dd>{card.owner}</dd>
         </div>
         <div>
-          <dt>Tipo</dt>
-          <dd>{card.card_type}</dd>
+          <dt>{isSubtask ? "Card pai" : "Subtasks"}</dt>
+          <dd>{isSubtask ? card.parent_title || "Card pai" : card.child_count}</dd>
         </div>
         <div>
           <dt>Prioridade</dt>
           <dd>{card.priority}</dd>
         </div>
+        <div>
+          <dt>Tipo</dt>
+          <dd>{card.card_type}</dd>
+        </div>
       </dl>
       <div className="drawer-actions">
+        {!isSubtask ? (
+          <button className="ghost-button" type="button" onClick={() => onCreateSubtask(card.id)}>
+            Nova subtask
+          </button>
+        ) : null}
         <button className="primary-button" type="button" onClick={() => onEdit(card)}>
           Editar card
         </button>

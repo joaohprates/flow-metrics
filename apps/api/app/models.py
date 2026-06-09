@@ -11,6 +11,7 @@ Priority = Literal["Alta", "Media", "Baixa"]
 
 class CardCreate(BaseModel):
     title: str = Field(min_length=3, max_length=120)
+    parent_card_id: UUID | None = None
     owner_id: UUID | None = None
     owner: str | None = Field(default=None, min_length=2, max_length=80)
     card_type: str = Field(default="Feature", min_length=2, max_length=40)
@@ -19,6 +20,7 @@ class CardCreate(BaseModel):
 
 class CardUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=3, max_length=120)
+    parent_card_id: UUID | None = None
     owner_id: UUID | None = None
     owner: str | None = Field(default=None, min_length=2, max_length=80)
     card_type: str | None = Field(default=None, min_length=2, max_length=40)
@@ -28,6 +30,9 @@ class CardUpdate(BaseModel):
 
 class CardOut(BaseModel):
     id: UUID
+    parent_card_id: UUID | None = None
+    parent_title: str | None = None
+    child_count: int = 0
     owner_id: UUID | None = None
     title: str
     owner: str
